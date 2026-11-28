@@ -159,12 +159,20 @@ pub(crate) struct PageInput<'a> {
     pub author: Option<&'a str>,
     /// Phones: drilled into the selected job (the tree is its Card alone).
     pub job_open: bool,
+    /// #EXP-2214 (ci-page.json `ciRunContext`): its kind (a Badge first in
+    /// the chips), a merge queue run's batch title and What happened.
+    pub context: Option<&'a domain::ci_page::CiRunContext>,
     pub runner_label: &'a dyn Fn(&CiJobRow) -> Option<String>,
 }
 
-/// `ciRunTitle`: the run's title, else the pipeline's name.
-pub(crate) fn run_title_of(run: &CiRunRow) -> String {
-    run.title.clone().filter(|title| !title.is_empty()).unwrap_or_else(|| run.name.clone())
+/// `ciRunTitle`: the run's title, else (#EXP-2214) a merge queue run's
+/// batch, else the pipeline's name.
+pub(crate) fn run_title_of(run: &CiRunRow, context: Option<&domain::ci_page::CiRunContext>) -> String {
+    run.title
+        .clone()
+        .filter(|title| !title.is_empty())
+        .or_else(|| context.and_then(|context| context.title.clone()))
+        .unwrap_or_else(|| run.name.clone())
 }
 
 /// One job's Card (web `jobCard`): its summary, the steps with the open
@@ -246,7 +254,7 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
     }
     let number = run.number.unwrap_or_default();
     let mut head = Vec::new();
-    head.push(json!({"id": "ci-run-heading", "component": "Heading", "props": {"text": run_title_of(run), "level": if input.phone { "h3" } else { "h2" }}}));
+    head.push(json!({"id": "ci-run-heading", "component": "Heading", "props": {"text": run_title_of(run, input.context), "level": if input.phone { "h3" } else { "h2" }}}));
     if !input.phone {
         let at = run.started_at.as_deref().or(run.created_at.as_deref()).map(crate::ci_page::iso_instant).unwrap_or_default();
         let age = json!({"@call": "formatRelativeTime", "args": {"value": at}});
@@ -266,9 +274,12 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
             },
         }));
     }
-    let chips: Vec<Value> = model::ci_run_chips(run, input.jobs, input.runner_label, input.pull_request, input.author, input.now_ms)
-        .iter()
-        .map(|chip| {
+    let kind = input
+        .context
+        .map(|context| json!({"id": format!("{}.kind", id("chips")), "component": "Badge", "props": {"text": context.badge, "variant": "outline"}}));
+    let chips: Vec<Value> = kind
+        .into_iter()
+        .chain(model::ci_run_chips(run, input.jobs, input.runner_label, input.pull_request, input.author, input.now_ms).iter().map(|chip| {
             let mut props = json!({"label": chip.label});
             if let Some(icon) = chip.icon {
                 props["icon"] = json!(icon);
@@ -277,7 +288,7 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
                 props["dot"] = json!(dot);
             }
             json!({"id": format!("{}.{}", id("chips"), chip.id), "component": "Chip", "props": props})
-        })
+        }))
         .collect();
     let chips = json!({"id": id("chips"), "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center", "wrap": true}, "children": chips});
     let actions = model::ci_run_actions(run);
@@ -336,6 +347,37 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
         json!({"id": "ci-run-title", "component": "Stack", "props": {"direction": "vertical", "gap": "xs", "align": "stretch"}, "children": head}),
         bar,
     ];
+    // #EXP-2214: a merge queue run's What happened, one row per PR.
+    let outcome = input.context.map(|context| context.outcome.as_slice()).unwrap_or_default();
+    if !outcome.is_empty() {
+        let mut props = json!({"title": domain::ci_page::copy("queue.whatHappened")});
+        if let Some(caption) = input.context.and_then(|context| context.caption.as_deref()) {
+            props["caption"] = json!(caption);
+        }
+        let rows: Vec<Value> = outcome
+            .iter()
+            .map(|row| {
+                let row_id = format!("ci-run-outcome.{}", row.pull_request_id);
+                let mut slots = json!({"leading": {"id": format!("{row_id}.glyph"), "component": "Icon", "props": {"name": row.glyph, "tone": row.tone, "size": "sm"}}});
+                if let Some(job) = &row.job_id {
+                    slots["trailing"] = json!({
+                        "id": format!("{row_id}.log"),
+                        "component": "Button",
+                        "props": {"label": domain::ci_page::copy("queue.openLog"), "icon": "file-text", "variant": "outline", "size": "sm"},
+                        "on": {"press": {"event": {"name": EVENT_SELECT, "context": {"job": job}}}},
+                    });
+                }
+                json!({
+                    "id": row_id,
+                    "component": "Row",
+                    "props": {"identifier": row.identifier, "title": row.title, "subtitle": row.text, "pressable": true},
+                    "slots": slots,
+                    "on": {"press": {"event": {"name": crate::ci_page::EVENT_OPEN_PR, "context": {"pr": row.pull_request_id}}}},
+                })
+            })
+            .collect();
+        children.push(json!({"id": "ci-run-outcome", "component": "Section", "props": props, "children": rows}));
+    }
     if let Some(error) = run.error.as_ref().filter(|error| !error.is_empty()) {
         children.push(json!({"id": "ci-run-error", "component": "Alert", "props": {"type": "error", "title": model::copy("pipelineError"), "message": error}}));
         return page(children);
@@ -402,26 +444,59 @@ pub(crate) fn page_tree(input: &PageInput) -> Value {
 
 /// The specimen's data: ci-run.json `specimen`; DEV-ONLY
 /// `EXP_DEV_CI_RUN_SOURCE=github` = ci-run-view.json's GitHub run (the
-/// grant not accepted: Open on GitHub and Fix), for its picture.
+/// grant not accepted: Open on GitHub and Fix), `=train` (#EXP-2214) its
+/// merge queue run (the batch title, What happened, Open log), for their
+/// pictures.
 fn specimen_model() -> &'static Value {
-    static GITHUB: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+    fn view_case(pick: fn(&Value) -> bool) -> Value {
         let view: Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/ci-run-view.json")).unwrap_or_default();
-        let case = view["ciRun"]
-            .as_array()
-            .and_then(|cases| cases.iter().find(|case| case["model"]["run"]["provider"] == "github" && case["phone"] != true))
-            .cloned()
-            .unwrap_or_default();
+        let case = view["ciRun"].as_array().and_then(|cases| cases.iter().find(|case| pick(case) && case["phone"] != true)).cloned().unwrap_or_default();
         let mut model = case["model"].clone();
         for key in ["selected", "log", "now"] {
             model[key] = case[key].clone();
         }
         model
-    });
-    if std::env::var("EXP_DEV_CI_RUN_SOURCE").as_deref() == Ok("github") && GITHUB.is_object() {
-        &GITHUB
-    } else {
-        &model::CI_RUN["specimen"]
     }
+    static GITHUB: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| view_case(|case| case["model"]["run"]["provider"] == "github"));
+    static TRAIN: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| view_case(|case| case["model"]["context"]["kind"] == "train"));
+    match std::env::var("EXP_DEV_CI_RUN_SOURCE").as_deref() {
+        Ok("github") if GITHUB.is_object() => &GITHUB,
+        Ok("train") if TRAIN.is_object() => &TRAIN,
+        _ => &model::CI_RUN["specimen"],
+    }
+}
+
+/// #EXP-2214 (ci-page.json `ciRunContext`): the run's kind and, a merge
+/// queue run, its train, the train's history and the repository's PRs.
+fn run_context(run: &CiRunRow, jobs: &[CiJobRow], cx: &App) -> domain::ci_page::CiRunContext {
+    let page_run = crate::ci_page::page_run(run);
+    let mut input = domain::ci_page::CiPageInput {
+        repos: crate::ci_page::page_repos(cx),
+        jobs: jobs.iter().map(crate::ci_page::page_job).collect(),
+        ..Default::default()
+    };
+    if let Some(store) = Store::try_global(cx) {
+        let collections = store.collections();
+        let train_id = run.merge_train_id.as_deref();
+        input.pull_requests = collections
+            .pull_requests
+            .read(cx)
+            .iter()
+            .filter(|pr| Some(pr.id.as_str()) == run.pull_request_id.as_deref() || (train_id.is_some() && pr.repository_id == run.repository_id))
+            .map(crate::ci_page::page_pr)
+            .collect();
+        if let Some(train_id) = train_id {
+            input.trains = collections.merge_trains.read(cx).get(train_id).map(crate::ci_page::page_train).into_iter().collect();
+            input.train_events = collections
+                .merge_train_events
+                .read(cx)
+                .iter()
+                .filter(|event| event.merge_train_id.as_deref() == Some(train_id))
+                .map(crate::ci_page::page_train_event)
+                .collect();
+        }
+    }
+    domain::ci_page::ci_run_context(&page_run, &input)
 }
 
 /// Where the page's data comes from.
@@ -487,6 +562,8 @@ impl CiRunView {
                 subscriptions.push(cx.observe(&collections.ci_runs, |_, _, cx| cx.notify()));
                 subscriptions.push(cx.observe(&collections.ci_jobs, |_, _, cx| cx.notify()));
                 subscriptions.push(cx.observe(&collections.devices, |_, _, cx| cx.notify()));
+                subscriptions.push(cx.observe(&collections.merge_trains, |_, _, cx| cx.notify()));
+                subscriptions.push(cx.observe(&collections.merge_train_events, |_, _, cx| cx.notify()));
             }
         }
         Self { source, requested, logs: Default::default(), tail: None, busy: None, view, last: Value::Null, scroll: gpui::ScrollHandle::new(), _subscriptions: subscriptions }
@@ -521,6 +598,14 @@ impl CiRunView {
             },
             EVENT_OPEN_EXTERNAL => {
                 if let Some(url) = self.live_run(cx).and_then(|run| run.external_url).filter(|url| !url.is_empty()) {
+                    cx.open_url(&url);
+                }
+            }
+            // #EXP-2214: a What happened row opens its pull request on the forge.
+            crate::ci_page::EVENT_OPEN_PR if self.source != Source::Specimen => {
+                let pr = event.context["pr"].as_str().unwrap_or_default();
+                let url = Store::try_global(cx).and_then(|store| store.collections().pull_requests.read(cx).get(pr).and_then(|pr| pr.url.clone()));
+                if let Some(url) = url.filter(|url| !url.is_empty()) {
                     cx.open_url(&url);
                 }
             }
@@ -658,6 +743,7 @@ impl CiRunView {
                 let jobs = model::fixture_jobs(&specimen["jobs"]);
                 let selected = model::ci_default_job(&jobs, self.requested.as_deref());
                 let log = selected.as_ref().and_then(|id| self.logs.get(id)).map(|log| log.text.clone());
+                let context: Option<domain::ci_page::CiRunContext> = serde_json::from_value(specimen["context"].clone()).ok();
                 Some(page_tree(&PageInput {
                     run: &run,
                     jobs: &jobs,
@@ -670,6 +756,7 @@ impl CiRunView {
                     pull_request: specimen["pullRequest"].as_object().and_then(|pr| Some((pr["number"].as_i64()?, pr["base"].as_str()?))),
                     author: specimen["author"].as_str(),
                     job_open: false,
+                    context: context.as_ref(),
                     runner_label: &|job| job.runner_device_id.clone(),
                 }))
             }
@@ -690,6 +777,7 @@ impl CiRunView {
                     .and_then(|id| collections.users.read(cx).get(id).and_then(|user| user.name.clone()))
                     .filter(|name| !name.is_empty());
                 let repository = run.repository_id.as_deref().and_then(|id| crate::ci_page::repo_full_name(id, cx));
+                let context = run_context(&run, &jobs, cx);
                 let devices = collections.devices.read(cx);
                 let label = |job: &CiJobRow| {
                     let device = devices.get(job.runner_device_id.as_deref()?)?;
@@ -707,6 +795,7 @@ impl CiRunView {
                     pull_request: pull_request.as_ref().map(|(number, base)| (*number, base.as_str())),
                     author: author.as_deref(),
                     job_open: false,
+                    context: Some(&context),
                     runner_label: &label,
                 });
                 if let Some(job) = selected.as_ref().and_then(|id| jobs.iter().find(|job| &job.id == id)) {
@@ -1226,6 +1315,8 @@ mod tests {
         let run = model::fixture_run(&model_json["run"]);
         let jobs = model::fixture_jobs(&model_json["jobs"]);
         let now = case["now"].as_str().and_then(domain::instant::parse_instant).unwrap();
+        // #EXP-2214: the model's `context` (ci-page.json `ciRunContext`).
+        let context: Option<domain::ci_page::CiRunContext> = serde_json::from_value(model_json["context"].clone()).ok();
         page_tree(&PageInput {
             run: &run,
             jobs: &jobs,
@@ -1238,6 +1329,7 @@ mod tests {
             pull_request: model_json["pullRequest"].as_object().and_then(|pr| Some((pr["number"].as_i64()?, pr["base"].as_str()?))),
             author: model_json["author"].as_str(),
             job_open: case["jobOpen"].as_bool() == Some(true),
+            context: context.as_ref(),
             runner_label: &|job| job.runner_device_id.clone(),
         })
     }

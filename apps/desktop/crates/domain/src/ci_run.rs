@@ -820,6 +820,7 @@ pub fn fixture_run(run: &Value) -> CiRunRow {
         external_url: text("externalUrl"),
         external_attempt: None,
         external_access: text("externalAccess"),
+        merge_train_id: text("mergeTrainId"),
         created_at: text("createdAt"),
         updated_at: None,
     }

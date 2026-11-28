@@ -7,40 +7,44 @@
 //!
 //! DATA, all synced: `ci_runs` + `ci_jobs` (ours and GitHub Actions),
 //! `pull_requests`, the sessions (a root's starter), the devices (the
-//! runners). The repositories' full names come from `repositories.list` per
-//! member team ([`repo_names`], what Settings › Repositories reads) until the
-//! repositories shape lands.
+//! runners), the repositories (name + default branch) and, #EXP-2214, the
+//! merge queue's `merge_trains` + `merge_train_events`.
 
-use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use eui_gpui::host::ActionEvent;
 use eui_gpui::view::SurfaceView;
 use gpui::{
-    App, AppContext as _, Context, Entity, Global, IntoElement, ParentElement as _, Render, Styled as _, Subscription, Window,
+    App, Context, Entity, IntoElement, ParentElement as _, Render, Styled as _, Subscription, Window,
 };
 use serde_json::{json, Value};
 use sync::Store;
 
 use domain::ci_page::{
-    self as model, CiFilter, CiPageInput, CiPageJob, CiPagePr, CiPageRepo, CiPageRun, CiPageRunner, CiPageSession, CiRunFilter, CiRunListRow,
-    CiSource, CiTab, CiTrainGroup, CiPageUser,
+    self as model, CiFilter, CiPageInput, CiPageJob, CiPagePr, CiPageRepo, CiPageRun, CiPageRunner, CiPageSession, CiPageTrain,
+    CiPageTrainEvent, CiPageUser, CiQueueNow, CiQueueRepo, CiQueueRow, CiRunFilter, CiRunKind, CiRunListRow, CiSubjectGroup, CiSubjectRow,
+    CiTab,
 };
 use domain::nav_badges::CountBadgeValue;
-
-use crate::queries;
 
 // ---------------------------------------------------------------------------
 // The tree (ci-page-view.json)
 // ---------------------------------------------------------------------------
 
-/// The page's events (web `CI_PAGE_EVENTS`).
+/// The page's events (web `CI_PAGE_EVENTS`). Context keys: `run`, `job`,
+/// `pr`, `device`, `url`; the pickers, tabs and menus carry their `value`.
+pub(crate) const EVENT_TAB: &str = "ci-tab";
 pub(crate) const EVENT_STATUS: &str = "ci-filter-status";
 pub(crate) const EVENT_REPOSITORY: &str = "ci-filter-repo";
-pub(crate) const EVENT_SOURCE: &str = "ci-filter-source";
 pub(crate) const EVENT_OPEN_RUN: &str = "ci-open-run";
+pub(crate) const EVENT_OPEN_JOB: &str = "ci-open-job";
+pub(crate) const EVENT_OPEN_URL: &str = "ci-open-url";
 pub(crate) const EVENT_OPEN_PR: &str = "ci-open-pr";
 pub(crate) const EVENT_OPEN_RUNNER: &str = "ci-open-runner";
+pub(crate) const EVENT_OPEN_RUNNERS: &str = "ci-open-runners";
+/// The Up next ⋯ menu: `value` = merge-now | hold, context `pr`.
+pub(crate) const EVENT_QUEUE_MENU: &str = "ci-queue-menu";
+pub(crate) const EVENT_RESUME: &str = "ci-resume";
 
 /// The page's own state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -50,59 +54,52 @@ pub(crate) struct PageState {
     pub phone: bool,
 }
 
-pub(crate) const EVENT_OPEN_RUNNERS: &str = "ci-open-runners";
-
-/// ci-page-view.json `TRAIN_TONE`: a train glyph's tone (`statusTones`).
-fn train_tone(glyph: &str) -> &'static str {
-    match glyph {
-        "ci-running" => model::status_tone(domain::ci_run::CiRunStatus::Running).1,
-        "ci-failed" => "danger",
-        "ci-passed" => "success",
-        _ => "neutral",
+/// web `DOT`: a pill tone's dot colour.
+fn dot(tone: &str) -> &'static str {
+    match tone {
+        "info" => "$color.info",
+        "success" => "$color.success",
+        "danger" => "$color.destructive",
+        "warning" => "$color.warning",
+        _ => "$color.mutedForeground",
     }
-}
-
-fn change(name: &str) -> Value {
-    json!({"change": {"event": {"name": name}}})
 }
 
 fn vstack(id: &str, gap: &str, children: Vec<Value>) -> Value {
     json!({"id": id, "component": "Stack", "props": {"direction": "vertical", "gap": gap, "align": "stretch"}, "children": children})
 }
 
-fn train_section(group: &CiTrainGroup, id: &str) -> Value {
-    let row_id = model::test_id("trainRow");
-    let rows: Vec<Value> = group
-        .rows
-        .iter()
-        .map(|row| {
-            let mut props = json!({"identifier": row.identifier, "title": row.title, "pressable": true});
-            if let Some(subtitle) = &row.subtitle {
-                props["subtitle"] = json!(subtitle);
-            }
-            json!({
-                "id": format!("{row_id}.{}", row.id),
-                "component": "Row",
-                "props": props,
-                "slots": {
-                    "leading": {"id": format!("{row_id}.{}.glyph", row.id), "component": "Icon", "props": {"name": row.glyph, "tone": train_tone(row.glyph), "size": "sm"}},
-                    "trailing": {"id": format!("{row_id}.{}.badge", row.id), "component": "Badge", "props": {"text": row.badge, "variant": "secondary"}},
-                },
-                "on": {"press": {"event": {"name": EVENT_OPEN_PR, "context": {"pr": row.pull_request_id}}}},
-            })
-        })
-        .collect();
-    json!({
-        "id": id,
-        "component": "Section",
-        "props": {"title": group.title, "caption": group.caption, "icon": "pr-batch"},
-        "children": rows,
-    })
+fn hstack(id: &str, children: Vec<Value>) -> Value {
+    json!({"id": id, "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": children})
+}
+
+fn relative(value: &str) -> Value {
+    json!({"@call": "formatRelativeTime", "args": {"value": value}})
+}
+
+fn open_run(run: &str) -> Value {
+    json!({"press": {"event": {"name": EVENT_OPEN_RUN, "context": {"run": run}}}})
+}
+
+fn open_pr(pr: &str) -> Value {
+    json!({"press": {"event": {"name": EVENT_OPEN_PR, "context": {"pr": pr}}}})
+}
+
+fn glyph(id: &str, name: &str, tone: &str) -> Value {
+    json!({"id": id, "component": "Icon", "props": {"name": name, "tone": tone, "size": "sm"}})
+}
+
+fn avatar(id: &str, user: &CiPageUser) -> Value {
+    let mut props = json!({"name": user.name, "seed": user.id, "size": "sm"});
+    if let Some(image) = &user.image {
+        props["src"] = json!(image);
+    }
+    json!({"id": id, "component": "Avatar", "props": props})
 }
 
 /// The filter bar (ci-page-view.json, #EXP-2169 "one look"): ONE Toolbar of
-/// three `Select{button}` pickers (status, repository, source), the app's
-/// ordinary picker buttons; wide adds the runner Chip at its end.
+/// `Select{button}` pickers, status and repository (#EXP-2214: the source
+/// picker is gone); wide adds the runner Chip at its end.
 fn filters(input: &CiPageInput, state: &PageState) -> Value {
     let id = model::test_id;
     let picker = |id: &str, label: &str, value: &str, options: Value, event: &str| {
@@ -110,7 +107,7 @@ fn filters(input: &CiPageInput, state: &PageState) -> Value {
             "id": id,
             "component": "Select",
             "props": {"name": id, "label": label, "triggerVariant": "button", "value": value, "options": options},
-            "on": change(event),
+            "on": {"change": {"event": {"name": event}}},
         })
     };
     let statuses: Vec<Value> = [CiFilter::All, CiFilter::Running, CiFilter::Failed, CiFilter::Mine]
@@ -125,18 +122,7 @@ fn filters(input: &CiPageInput, state: &PageState) -> Value {
         json!(model::ci_repo_options(input)),
         EVENT_REPOSITORY,
     );
-    let source = picker(
-        id("sourceFilter"),
-        model::copy("filterLabels.source"),
-        state.filter.source.map(CiSource::id).unwrap_or("all"),
-        json!([
-            {"label": model::copy("sources.all"), "value": "all"},
-            {"label": model::copy("sources.exponential"), "value": "exponential"},
-            {"label": model::copy("sources.github"), "value": "github"},
-        ]),
-        EVENT_SOURCE,
-    );
-    let mut node = json!({"id": id("filters"), "component": "Toolbar", "children": [status, repository, source]});
+    let mut node = json!({"id": id("filters"), "component": "Toolbar", "children": [status, repository]});
     if let Some((label, online)) = model::ci_runner_chip(input).filter(|_| !state.phone) {
         node["slots"] = json!({"trailing": {
             "id": id("runnerChip"),
@@ -151,18 +137,17 @@ fn filters(input: &CiPageInput, state: &PageState) -> Value {
 /// One run's row (web `runRow`).
 fn run_row(row: &CiRunListRow, phone: bool) -> Value {
     let id = format!("{}.{}", model::test_id("runRow"), row.id);
-    let leading = json!({"id": format!("{id}.glyph"), "component": "Icon", "props": {"name": row.glyph, "tone": row.tone, "size": "sm"}});
-    let press = json!({"press": {"event": {"name": EVENT_OPEN_RUN, "context": {"run": row.id}}}});
+    let leading = glyph(&format!("{id}.glyph"), row.glyph, row.tone);
     if phone {
         return json!({
             "id": id,
             "component": "Row",
             "props": {"title": row.title, "subtitle": row.phone_subtitle, "meta": row.phone_meta, "pressable": true},
             "slots": {"leading": leading},
-            "on": press,
+            "on": open_run(&row.id),
         });
     }
-    let age = json!({"@call": "formatRelativeTime", "args": {"value": row.at}});
+    let age = relative(&row.at);
     let meta = match &row.duration {
         Some(duration) => json!({"@call": "fill", "args": {"template": "{duration} · {age}", "params": {"duration": duration, "age": age}}}),
         None => json!({"@call": "fill", "args": {"template": "{queued} · {age}", "params": {"queued": model::copy("waitingForRunner"), "age": age}}}),
@@ -177,32 +162,22 @@ fn run_row(row: &CiRunListRow, phone: bool) -> Value {
         }),
     ];
     if let Some(author) = &row.author {
-        let mut props = json!({"name": author.name, "seed": author.id, "size": "sm"});
-        if let Some(image) = &author.image {
-            props["src"] = json!(image);
-        }
-        trailing.push(json!({"id": format!("{id}.author"), "component": "Avatar", "props": props}));
+        trailing.push(avatar(&format!("{id}.author"), author));
     }
     json!({
         "id": id,
         "component": "Row",
         "props": {"title": row.title, "subtitle": row.subtitle, "pressable": true},
-        "slots": {
-            "leading": leading,
-            "trailing": {"id": format!("{id}.trailing"), "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": trailing},
-        },
-        "on": press,
+        "slots": {"leading": leading, "trailing": hstack(&format!("{id}.trailing"), trailing)},
+        "on": open_run(&row.id),
     })
 }
 
-/// The runs as day Sections (or the EmptyState): the Runs tab's body, and
-/// the repo page's Runs tab ([`repo_runs_tree`]).
-fn run_sections(input: &CiPageInput, filter: &CiRunFilter, phone: bool, filtered: bool) -> Value {
-    let id = model::test_id;
-    let groups = model::ci_run_groups(input, filter);
+/// Runs as day Sections (In progress first), or the EmptyState.
+fn run_sections(id: &str, input: &CiPageInput, filter: &CiRunFilter, kinds: &[CiRunKind], phone: bool, empty: &str) -> Value {
+    let groups = model::ci_run_groups(input, filter, Some(kinds));
     if groups.is_empty() {
-        let title = if filtered { model::copy("empty.filtered") } else { model::copy("empty.runs") };
-        return json!({"id": id("runs"), "component": "EmptyState", "props": {"icon": "nav-ci", "title": title, "size": "list"}});
+        return json!({"id": id, "component": "EmptyState", "props": {"icon": "nav-ci", "title": empty, "size": "list"}});
     }
     let sections: Vec<Value> = groups
         .iter()
@@ -212,40 +187,277 @@ fn run_sections(input: &CiPageInput, filter: &CiRunFilter, phone: bool, filtered
                 props["count"] = json!(count);
             }
             json!({
-                "id": format!("{}.{}", id("runs"), group.id),
+                "id": format!("{id}.{}", group.id),
                 "component": "Section",
                 "props": props,
                 "children": group.rows.iter().map(|row| run_row(row, phone)).collect::<Vec<_>>(),
             })
         })
         .collect();
-    vstack(id("runs"), "md", sections)
+    vstack(id, "md", sections)
 }
 
-fn runs_panel(input: &CiPageInput, state: &PageState) -> Value {
-    let id = model::test_id;
-    let sections = run_sections(input, &state.filter, state.phone, state.filter.filtered());
-    vstack(&format!("{}.runs", id("page")), "md", vec![filters(input, state), sections])
+fn filtered(filter: &CiRunFilter) -> bool {
+    filter.status != CiFilter::All || filter.repository_id.is_some()
 }
 
-/// THE REPO PAGE'S RUNS TAB (#EXP-2169 "one look", web `ciRepoRunsTree`):
-/// the CI page's runs of ONE repository, the same day Sections and rows, no
-/// filter bar. Events: the page's `ci-open-run {run}`.
-pub(crate) fn repo_runs_tree(input: &CiPageInput, repository_id: &str, phone: bool) -> Value {
-    let filter = CiRunFilter { status: CiFilter::All, repository_id: Some(repository_id.to_string()), source: None };
-    run_sections(input, &filter, phone, false)
+// ── Pull requests ─────────────────────────────────────────────────────────
+
+/// One PR (or branch): its rolled-up status, the deciding run's line and,
+/// wide, the merge queue pill; its runs fold under it (compact rows).
+fn subject_row(row: &CiSubjectRow, phone: bool) -> Value {
+    let id = format!("{}.{}", model::test_id("prRow"), row.id);
+    let mut props = json!({"title": row.title, "subtitle": if phone { &row.phone_subtitle } else { &row.subtitle }, "pressable": true, "open": false});
+    if let Some(identifier) = &row.identifier {
+        props["identifier"] = json!(identifier);
+    }
+    if phone {
+        props["meta"] = json!(row.meta);
+    }
+    let mut slots = json!({"leading": glyph(&format!("{id}.glyph"), row.glyph, row.tone)});
+    if !phone {
+        let mut trailing = vec![json!({"id": format!("{id}.meta"), "component": "Text", "props": {"text": row.meta, "variant": "muted"}})];
+        if let Some(pill) = &row.pill {
+            trailing.push(json!({"id": format!("{id}.pill"), "component": "Chip", "props": {"label": pill.text, "dot": dot(pill.tone)}}));
+        }
+        slots["trailing"] = hstack(&format!("{id}.trailing"), trailing);
+    }
+    let runs: Vec<Value> = row
+        .runs
+        .iter()
+        .map(|run| {
+            json!({
+                "id": format!("{id}.run.{}", run.id),
+                "component": "Row",
+                "props": {"title": run.workflow, "meta": run.phone_meta, "density": "compact", "pressable": true},
+                "slots": {"leading": glyph(&format!("{id}.run.{}.glyph", run.id), run.glyph, run.tone)},
+                "on": open_run(&run.id),
+            })
+        })
+        .collect();
+    json!({"id": id, "component": "Row", "props": props, "slots": slots, "children": runs, "on": open_run(&row.run_id)})
 }
 
-fn train_panel(input: &CiPageInput) -> Value {
-    let id = model::test_id;
-    let groups = model::ci_train_groups(input, true);
-    let children: Vec<Value> = if groups.is_empty() {
-        vec![json!({"id": id("train"), "component": "EmptyState", "props": {"icon": "pr-batch", "title": model::copy("empty.train"), "size": "list"}})]
+fn subject_sections(id: &str, groups: &[CiSubjectGroup], phone: bool, empty: &str) -> Value {
+    if groups.is_empty() {
+        return json!({"id": id, "component": "EmptyState", "props": {"icon": "git-pull-request", "title": empty, "size": "list"}});
+    }
+    let sections: Vec<Value> = groups
+        .iter()
+        .map(|group| {
+            let mut props = json!({"title": group.title, "count": group.count});
+            if !group.open {
+                props["collapsible"] = json!(true);
+                props["open"] = json!(false);
+            }
+            json!({
+                "id": format!("{id}.{}", group.id),
+                "component": "Section",
+                "props": props,
+                "children": group.rows.iter().map(|row| subject_row(row, phone)).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    vstack(id, "md", sections)
+}
+
+// ── Merge queue ───────────────────────────────────────────────────────────
+
+fn now_card(now: &CiQueueNow, id: &str) -> Value {
+    let copy = |key: &str| model::copy(&format!("queue.{key}"));
+    let mut children = vec![match now.progress {
+        None => json!({"id": format!("{id}.elapsed"), "component": "Text", "props": {"text": now.elapsed, "variant": "muted"}}),
+        Some(progress) => json!({
+            "id": format!("{id}.progress"),
+            "component": "Progress",
+            "props": {"value": progress, "max": 100, "label": now.elapsed, "valueText": now.eta, "tone": "info"},
+        }),
+    }];
+    let members: Vec<Value> = now
+        .members
+        .iter()
+        .map(|member| {
+            let row_id = format!("{id}.member.{}", member.pull_request_id);
+            let mut node = json!({
+                "id": row_id,
+                "component": "Row",
+                "props": {"identifier": member.identifier, "title": member.title, "pressable": true},
+                "on": open_pr(&member.pull_request_id),
+            });
+            if let Some(author) = &member.author {
+                node["slots"] = json!({"trailing": avatar(&format!("{row_id}.author"), author)});
+            }
+            node
+        })
+        .collect();
+    children.push(json!({
+        "id": format!("{id}.members"),
+        "component": "Section",
+        "props": {"title": copy("batch"), "count": now.members.len()},
+        "children": members,
+    }));
+    if let Some(run_id) = &now.run_id {
+        children.push(json!({
+            "id": format!("{id}.open"),
+            "component": "Button",
+            "props": {"label": copy("openRun"), "icon": "external-link", "variant": "outline", "size": "sm"},
+            "on": open_run(run_id),
+        }));
+    }
+    json!({
+        "id": id,
+        "component": "Card",
+        "props": {"title": copy("testing"), "description": now.subtitle},
+        "children": [vstack(&format!("{id}.body"), "md", children)],
+    })
+}
+
+fn queue_row(row: &CiQueueRow, id: &str, phone: bool) -> Value {
+    let copy = |key: &str| model::copy(&format!("queue.{key}"));
+    let mut trailing: Vec<Value> = Vec::new();
+    if let Some(at) = row.at.as_deref().filter(|_| !phone) {
+        trailing.push(json!({"id": format!("{id}.at"), "component": "Text", "props": {"text": relative(at), "variant": "muted"}}));
+    }
+    if let Some(badge) = &row.badge {
+        trailing.push(json!({"id": format!("{id}.badge"), "component": "Chip", "props": {"label": badge.text, "dot": dot(badge.tone)}}));
+    }
+    if row.action == Some("open-log") {
+        let press = match &row.job_id {
+            Some(job) => json!({"event": {"name": EVENT_OPEN_JOB, "context": {"run": row.run_id, "job": job}}}),
+            None => json!({"event": {"name": EVENT_OPEN_URL, "context": {"url": row.url}}}),
+        };
+        trailing.push(json!({
+            "id": format!("{id}.log"),
+            "component": "Button",
+            "props": {"label": copy("openLog"), "icon": "file-text", "variant": "outline", "size": "sm"},
+            "on": {"press": press},
+        }));
+    }
+    if row.action == Some("resume") {
+        trailing.push(json!({
+            "id": format!("{id}.resume"),
+            "component": "Button",
+            "props": {"label": copy("resume"), "variant": "outline", "size": "sm"},
+            "on": {"press": {"event": {"name": EVENT_RESUME, "context": {"pr": row.pull_request_id}}}},
+        }));
+    }
+    if row.menu {
+        trailing.push(json!({
+            "id": format!("{id}.menu"),
+            "component": "Menu",
+            "props": {
+                "label": copy("more"),
+                "items": [
+                    {"label": copy("menu.mergeNow"), "value": "merge-now"},
+                    {"label": copy("menu.hold"), "value": "hold"},
+                ],
+            },
+            "children": [{"id": format!("{id}.menu.button"), "component": "Button", "props": {"icon": "ellipsis", "variant": "ghost", "size": "icon-xs", "label": copy("more")}}],
+            "on": {"select": {"event": {"name": EVENT_QUEUE_MENU, "context": {"pr": row.pull_request_id}}}},
+        }));
+    }
+    let mut props = json!({"identifier": row.identifier, "title": row.title, "pressable": true});
+    if let Some(subtitle) = &row.subtitle {
+        props["subtitle"] = json!(subtitle);
+    }
+    if let Some(at) = row.at.as_deref().filter(|_| phone) {
+        props["meta"] = relative(at);
+    }
+    let mut slots = json!({"leading": glyph(&format!("{id}.glyph"), row.glyph, row.tone)});
+    match trailing.len() {
+        0 => {}
+        1 => slots["trailing"] = trailing.remove(0),
+        _ => slots["trailing"] = hstack(&format!("{id}.trailing"), trailing),
+    }
+    json!({"id": id, "component": "Row", "props": props, "slots": slots, "on": open_pr(&row.pull_request_id)})
+}
+
+fn queue_section(id: &str, title: &str, rows: &[CiQueueRow], phone: bool, fold: bool) -> Option<Value> {
+    if rows.is_empty() {
+        return None;
+    }
+    let mut props = json!({"title": title, "count": rows.len()});
+    if fold {
+        props["collapsible"] = json!(true);
+        props["open"] = json!(rows.len() <= 5);
+    }
+    let row_id = model::test_id("queueRow");
+    Some(json!({
+        "id": id,
+        "component": "Section",
+        "props": props,
+        "children": rows.iter().map(|row| queue_row(row, &format!("{row_id}.{}", row.id), phone)).collect::<Vec<_>>(),
+    }))
+}
+
+fn queue_repo(repo: &CiQueueRepo, phone: bool, header: bool) -> Value {
+    let copy = |key: &str| model::copy(&format!("queue.{key}"));
+    let id = format!("{}.{}", model::test_id("queueRepo"), repo.repository_id);
+    let mut children: Vec<Value> = Vec::new();
+    if header {
+        children.push(hstack(
+            &format!("{id}.head"),
+            vec![
+                json!({"id": format!("{id}.title"), "component": "Heading", "props": {"text": repo.title, "level": "h3"}}),
+                json!({"id": format!("{id}.caption"), "component": "Text", "props": {"text": repo.caption, "variant": "muted"}}),
+            ],
+        ));
+    }
+    if !phone {
+        let stat = |key: &str, value: String| {
+            json!({"id": format!("{id}.stat.{key}"), "component": "StatTile", "props": {"label": copy(&format!("stats.{key}")), "value": value}})
+        };
+        children.push(json!({
+            "id": format!("{}.{}", model::test_id("queueStats"), repo.repository_id),
+            "component": "Grid",
+            "props": {"columns": {"base": 2, "md": 4}, "gap": "sm"},
+            "children": [
+                stat("inQueue", repo.stats.in_queue.to_string()),
+                stat("landedToday", repo.stats.landed_today.to_string()),
+                stat("sentBackToday", repo.stats.sent_back_today.to_string()),
+                stat("typicalRun", repo.stats.typical_run.clone().unwrap_or_else(|| "—".to_string())),
+            ],
+        }));
+    }
+    let now_id = model::test_id("queueNow");
+    for now in &repo.testing {
+        children.push(now_card(now, &format!("{now_id}.{}", now.train_id)));
+    }
+    let up_next = queue_section(&format!("{id}.next"), copy("upNext"), &repo.up_next, phone, false);
+    let waiting = queue_section(&format!("{id}.waiting"), copy("notReady"), &repo.waiting, phone, true);
+    let sent_back = queue_section(&format!("{id}.sent"), copy("sentBack"), &repo.sent_back, phone, false);
+    let landed = queue_section(&format!("{id}.landed"), copy("landed"), &repo.landed, phone, false);
+    if phone {
+        children.extend([up_next, sent_back, waiting, landed].into_iter().flatten());
     } else {
-        groups.iter().map(|group| train_section(group, &format!("{}.{}", id("train"), group.repository_id))).collect()
-    };
-    vstack(&format!("{}.train", id("page")), "md", children)
+        let left: Vec<Value> = [up_next, waiting].into_iter().flatten().collect();
+        let right: Vec<Value> = [sent_back, landed].into_iter().flatten().collect();
+        if !left.is_empty() && !right.is_empty() {
+            children.push(json!({
+                "id": format!("{id}.columns"),
+                "component": "Grid",
+                "props": {"columns": {"base": 1, "lg": 2}, "gap": "lg"},
+                "children": [vstack(&format!("{id}.left"), "lg", left), vstack(&format!("{id}.right"), "lg", right)],
+            }));
+        } else {
+            children.extend(left);
+            children.extend(right);
+        }
+    }
+    vstack(&id, "lg", children)
 }
+
+fn queue_panel(input: &CiPageInput, phone: bool, repository_id: Option<&str>) -> Value {
+    let id = model::test_id("queue");
+    let repos: Vec<CiQueueRepo> =
+        model::ci_queue(input).into_iter().filter(|repo| repository_id.is_none_or(|wanted| repo.repository_id == wanted)).collect();
+    if repos.is_empty() {
+        return json!({"id": id, "component": "EmptyState", "props": {"icon": "pr-batch", "title": model::copy("empty.train"), "size": "list"}});
+    }
+    vstack(id, "xl", repos.iter().map(|repo| queue_repo(repo, phone, repository_id.is_none())).collect())
+}
+
+// ── Runners ───────────────────────────────────────────────────────────────
 
 fn runners_panel(input: &CiPageInput) -> Value {
     let id = model::test_id;
@@ -261,7 +473,7 @@ fn runners_panel(input: &CiPageInput) -> Value {
                 (Some(busy), _) => Some(json!(busy)),
                 (None, Some(since)) => Some(json!({
                     "@call": "fill",
-                    "args": {"template": model::copy("runners.offlineSince"), "params": {"time": {"@call": "formatRelativeTime", "args": {"value": since}}}},
+                    "args": {"template": model::copy("runners.offlineSince"), "params": {"time": relative(since)}},
                 })),
                 _ => None,
             };
@@ -284,27 +496,70 @@ fn runners_panel(input: &CiPageInput) -> Value {
     json!({"id": id("runners"), "component": "Section", "props": {}, "children": children})
 }
 
+// ── The page ──────────────────────────────────────────────────────────────
+
 /// The CI page's body (web's `ciPageTree`): the CURRENT tab's panel. The tab
 /// switcher is the app's segmented capsule ([`crate::controls::page_tabs`],
 /// #EXP-2169 "one look"), drawn by the view above this tree.
 pub(crate) fn page_tree(input: &CiPageInput, state: &PageState) -> Value {
+    let id = model::test_id;
+    let empty = |key: &str| if filtered(&state.filter) { model::copy("empty.filtered") } else { model::copy(&format!("empty.{key}")) };
     match state.tab {
-        CiTab::Runs => runs_panel(input, state),
-        CiTab::Train => train_panel(input),
+        CiTab::Train => queue_panel(input, state.phone, None),
+        CiTab::Prs => vstack(
+            &format!("{}.prs", id("page")),
+            "md",
+            vec![filters(input, state), subject_sections(id("prs"), &model::ci_pr_groups(input, &state.filter), state.phone, empty("prs"))],
+        ),
+        CiTab::Releases => vstack(
+            &format!("{}.releases", id("page")),
+            "md",
+            vec![filters(input, state), run_sections(id("releases"), input, &state.filter, &[CiRunKind::Release], state.phone, empty("releases"))],
+        ),
         CiTab::Runners => runners_panel(input),
     }
 }
 
-/// The tab switcher's entries: copy.tabs, Merge train and Runners counted
-/// (`ciTabCounts`; Runs none, zero = none).
+/// THE REPO PAGE'S RUNS TAB (#EXP-2214, web `ciRepoRunsTree`): a `Segmented`
+/// of Merge queue · Pull requests · Releases (copy.tabs, phones
+/// copy.phoneTabs; `ci-tab` carries the value), then that panel for ONE
+/// repository: no repository header, no filter bar. `tab` Runners reads as
+/// the merge queue.
+pub(crate) fn repo_runs_tree(input: &CiPageInput, repository_id: &str, tab: CiTab, phone: bool) -> Value {
+    let id = model::test_id;
+    let tab = if tab == CiTab::Runners { CiTab::Train } else { tab };
+    let filter = CiRunFilter { status: CiFilter::All, repository_id: Some(repository_id.to_string()), source: None };
+    let panel = match tab {
+        CiTab::Prs => subject_sections(id("prs"), &model::ci_pr_groups(input, &filter), phone, model::copy("empty.prs")),
+        CiTab::Releases => run_sections(id("releases"), input, &filter, &[CiRunKind::Release], phone, model::copy("empty.releases")),
+        _ => queue_panel(input, phone, Some(repository_id)),
+    };
+    let items: Vec<Value> = [CiTab::Train, CiTab::Prs, CiTab::Releases].iter().map(|t| json!({"label": t.label(phone), "value": t.id()})).collect();
+    vstack(
+        id("runs"),
+        "md",
+        vec![
+            json!({
+                "id": id("tabs"),
+                "component": "Segmented",
+                "props": {"value": tab.id(), "size": "sm", "items": items},
+                "on": {"change": {"event": {"name": EVENT_TAB}}},
+            }),
+            panel,
+        ],
+    )
+}
+
+/// The tab switcher's entries: copy.tabs, each counted (`ciTabCounts`,
+/// zero = none).
 fn page_tabs(input: Option<&CiPageInput>) -> Vec<crate::controls::PageTab> {
-    let (train, runners) = input.map(model::ci_tab_counts).unwrap_or_default();
-    [(CiTab::Runs, 0), (CiTab::Train, train), (CiTab::Runners, runners)]
+    let counts = input.map(model::ci_tab_counts).unwrap_or_default();
+    model::CI_TABS
         .into_iter()
-        .map(|(tab, count)| crate::controls::PageTab {
+        .map(|tab| crate::controls::PageTab {
             value: tab.id().to_string(),
-            label: model::copy(&format!("tabs.{}", tab.id())).to_string(),
-            count: (count > 0).then_some(count),
+            label: tab.label(false).to_string(),
+            count: Some(counts.of(tab)).filter(|count| *count > 0),
         })
         .collect()
 }
@@ -313,55 +568,26 @@ fn page_tabs(input: Option<&CiPageInput>) -> Vec<crate::controls::PageTab> {
 // The data
 // ---------------------------------------------------------------------------
 
-/// Repository full names by id, `repositories.list` once per member team.
-#[derive(Default)]
-pub(crate) struct RepoNames {
-    pub names: HashMap<String, String>,
-    loaded: HashSet<String>,
-}
-
-struct RepoNamesGlobal(Entity<RepoNames>);
-impl Global for RepoNamesGlobal {}
-
-/// The names entity (observe it), fetching every member team not read yet.
-pub(crate) fn repo_names(cx: &mut App) -> Entity<RepoNames> {
-    let entity = match cx.try_global::<RepoNamesGlobal>() {
-        Some(global) => global.0.clone(),
-        None => {
-            let entity = cx.new(|_| RepoNames::default());
-            cx.set_global(RepoNamesGlobal(entity.clone()));
-            entity
-        }
-    };
-    let Some(store) = Store::try_global(cx) else { return entity };
-    let teams = store.collections().teams_sorted(cx);
-    for team in teams {
-        if entity.read(cx).loaded.contains(&team.id) {
-            continue;
-        }
-        let Some(trpc) = queries::trpc_client(cx) else { return entity };
-        entity.update(cx, |names, _| names.loaded.insert(team.id.clone()));
-        let (team_id, weak) = (team.id.clone(), entity.downgrade());
-        cx.spawn(async move |cx| {
-            let rows = cx.background_executor().spawn(async move { crate::action_run::fetch_repositories(&trpc, &team_id) }).await;
-            match rows {
-                Ok(rows) => {
-                    let _ = weak.update(cx, |names, cx| {
-                        names.names.extend(rows.into_iter().map(|row| (row.id, row.full_name)));
-                        cx.notify();
-                    });
-                }
-                Err(err) => log::debug!("[ci] repositories.list: {err}"),
-            }
+/// #EXP-2214: the synced repositories as the page reads them (the name and
+/// the default branch: a push to it is a release run).
+pub(crate) fn page_repos(cx: &App) -> Vec<CiPageRepo> {
+    let Some(store) = Store::try_global(cx) else { return Vec::new() };
+    store
+        .collections()
+        .repositories
+        .read(cx)
+        .iter()
+        .map(|repo| CiPageRepo {
+            id: repo.id.clone(),
+            full_name: repo.full_name.clone(),
+            default_branch: repo.default_branch_override.clone().or_else(|| repo.default_branch.clone()),
         })
-        .detach();
-    }
-    entity
+        .collect()
 }
 
-/// A repository's full name when known (synced names first).
+/// A repository's full name when synced.
 pub(crate) fn repo_full_name(repository_id: &str, cx: &mut App) -> Option<String> {
-    repo_names(cx).read(cx).names.get(repository_id).cloned()
+    Store::try_global(cx)?.collections().repository(repository_id, cx).map(|repo| repo.full_name)
 }
 
 /// A synced timestamp (Postgres' `2026-11-26 12:03:05.335+00`) as the ISO
@@ -391,61 +617,111 @@ pub(crate) fn page_run(run: &domain::rows::CiRunRow) -> CiPageRun {
         completed_at: run.completed_at.as_deref().map(iso_instant),
         created_at: run.created_at.as_deref().map(iso_instant).unwrap_or_default(),
         title: run.title.clone().filter(|title| !title.is_empty()),
+        merge_train_id: run.merge_train_id.clone(),
+    }
+}
+
+fn string_list(value: Option<&Value>) -> Vec<String> {
+    value.and_then(Value::as_array).map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_string)).collect()).unwrap_or_default()
+}
+
+/// A synced `pull_requests` row as the page's PR.
+pub(crate) fn page_pr(pr: &domain::rows::PullRequestRow) -> CiPagePr {
+    CiPagePr {
+        id: pr.id.clone(),
+        number: pr.number.unwrap_or_default(),
+        title: pr.title.clone().unwrap_or_default(),
+        repository_id: pr.repository_id.clone().unwrap_or_default(),
+        root_session_id: pr.root_session_id.clone(),
+        base: pr.base.clone().unwrap_or_default(),
+        state: pr.state.clone().unwrap_or_default(),
+        merge_state: pr.merge_state.clone(),
+        merge_wait: pr.merge_wait.clone(),
+        merge_hold: pr.merge_hold.clone(),
+        merge_now: pr.merge_now.unwrap_or(false),
+        merge_attempts: pr.merge_attempts.unwrap_or_default(),
+        merge_position: pr.merge_position,
+        merge_train_id: pr.merge_train_id.clone(),
+    }
+}
+
+/// A synced `merge_trains` row as the page's train.
+pub(crate) fn page_train(train: &domain::rows::MergeTrainRow) -> CiPageTrain {
+    let nested = |value: Option<&Value>| -> Vec<Vec<String>> {
+        value.and_then(Value::as_array).map(|units| units.iter().map(|unit| string_list(Some(unit))).collect()).unwrap_or_default()
+    };
+    CiPageTrain {
+        id: train.id.clone(),
+        repository_id: train.repository_id.clone(),
+        base: train.base.clone(),
+        base_sha: train.base_sha.clone(),
+        units: nested(train.units.as_ref()),
+        state: train.state.clone(),
+        attempt: train.attempt.unwrap_or_default(),
+        bisect_of: train.bisect_of.clone(),
+        pending: train
+            .pending
+            .as_ref()
+            .and_then(Value::as_array)
+            .map(|halves| halves.iter().map(|half| nested(Some(half))).collect())
+            .unwrap_or_default(),
+        untested: train.untested.unwrap_or(false),
+        tested_sha: train.tested_sha.clone(),
+        created_at: train.created_at.as_deref().map(iso_instant).unwrap_or_default(),
+        finished_at: train.finished_at.as_deref().map(iso_instant),
+    }
+}
+
+/// A synced `merge_train_events` row as the page's history row.
+pub(crate) fn page_train_event(event: &domain::rows::MergeTrainEventRow) -> CiPageTrainEvent {
+    CiPageTrainEvent {
+        id: event.id.clone(),
+        repository_id: event.repository_id.clone(),
+        pull_request_id: event.pull_request_id.clone(),
+        merge_train_id: event.merge_train_id.clone(),
+        kind: event.kind.clone(),
+        base: event.base.clone(),
+        attempt: event.attempt.unwrap_or_default(),
+        reason: event.reason.clone(),
+        checks: string_list(event.checks.as_ref()),
+        ci_job_id: event.ci_job_id.clone(),
+        job_url: event.job_url.clone(),
+        files: string_list(event.files.as_ref()),
+        sha: event.sha.clone(),
+        by_user_id: event.by_user_id.clone(),
+        created_at: event.created_at.as_deref().map(iso_instant).unwrap_or_default(),
     }
 }
 
 /// A synced `ci_jobs` row as the page's job.
 pub(crate) fn page_job(job: &domain::rows::CiJobRow) -> CiPageJob {
     CiPageJob {
+        id: job.id.clone(),
         run_id: job.run_id.clone(),
+        check: job.check.clone(),
         status: job.status.clone(),
         conclusion: job.conclusion.clone(),
-        runs_on: job
-            .runs_on
-            .as_ref()
-            .and_then(Value::as_array)
-            .map(|labels| labels.iter().filter_map(|label| label.as_str().map(str::to_string)).collect())
-            .unwrap_or_default(),
+        runs_on: string_list(job.runs_on.as_ref()),
         runner_device_id: job.runner_device_id.clone(),
         provider: job.provider.clone().unwrap_or_else(|| "exponential".into()),
     }
 }
 
-/// Every synced row the page reads, as [`CiPageInput`] (`repos` = what
-/// [`repo_names`] holds; `None` = no store).
-pub(crate) fn live_input(with_repos: bool, cx: &mut App) -> Option<CiPageInput> {
-    let repos: Vec<CiPageRepo> = if with_repos {
-        repo_names(cx).read(cx).names.iter().map(|(id, name)| CiPageRepo { id: id.clone(), full_name: name.clone() }).collect()
-    } else {
-        Vec::new()
-    };
-    synced_input(repos, cx)
+/// Every synced row the page reads, as [`CiPageInput`] (`None` = no store).
+pub(crate) fn live_input(cx: &App) -> Option<CiPageInput> {
+    synced_input(page_repos(cx), cx)
 }
 
-/// [`live_input`] over the given `repos` (the repo page's Runs tab: that
-/// repository alone).
+/// [`live_input`] over the given `repos`.
 pub(crate) fn synced_input(repos: Vec<CiPageRepo>, cx: &App) -> Option<CiPageInput> {
     let store = Store::try_global(cx)?;
     let collections = store.collections().clone();
     let viewer_id = crate::session_data::signed_in_user(cx).unwrap_or_default();
     let runs: Vec<CiPageRun> = collections.ci_runs.read(cx).iter().map(page_run).collect();
     let jobs: Vec<CiPageJob> = collections.ci_jobs.read(cx).iter().map(page_job).collect();
-    let pull_requests: Vec<CiPagePr> = collections
-        .pull_requests
-        .read(cx)
-        .iter()
-        .map(|pr| CiPagePr {
-            id: pr.id.clone(),
-            number: pr.number.unwrap_or_default(),
-            title: pr.title.clone().unwrap_or_default(),
-            repository_id: pr.repository_id.clone().unwrap_or_default(),
-            root_session_id: pr.root_session_id.clone(),
-            base: pr.base.clone().unwrap_or_default(),
-            merge_state: pr.merge_state.clone(),
-            merge_position: pr.merge_position,
-            merge_train_id: pr.merge_train_id.clone(),
-        })
-        .collect();
+    let pull_requests: Vec<CiPagePr> = collections.pull_requests.read(cx).iter().map(page_pr).collect();
+    let trains: Vec<CiPageTrain> = collections.merge_trains.read(cx).iter().map(page_train).collect();
+    let train_events: Vec<CiPageTrainEvent> = collections.merge_train_events.read(cx).iter().map(page_train_event).collect();
     let sessions: Vec<CiPageSession> = collections
         .sessions
         .read(cx)
@@ -482,12 +758,12 @@ pub(crate) fn synced_input(repos: Vec<CiPageRepo>, cx: &App) -> Option<CiPageInp
         .collect();
     let now = crate::exponential_ui_host::now_iso();
     let utc_offset_minutes = i64::from(chrono::Local::now().offset().local_minus_utc() / 60);
-    Some(CiPageInput { runs, jobs, repos, pull_requests, sessions, runners, users, viewer_id, now, utc_offset_minutes })
+    Some(CiPageInput { runs, jobs, repos, pull_requests, sessions, runners, users, trains, train_events, viewer_id, now, utc_offset_minutes })
 }
 
 /// The sidebar row's badge (nav-badges.json destination `ci`).
 pub(crate) fn ci_badge(cx: &mut App) -> CountBadgeValue {
-    live_input(false, cx).map(|input| model::ci_badge(&input)).unwrap_or_default()
+    synced_input(Vec::new(), cx).map(|input| model::ci_badge(&input)).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -516,9 +792,14 @@ impl CiPageView {
         Self::build(Source::Live, window, cx)
     }
 
-    /// ci-page.json `scenario`, no server.
+    /// ci-page.json `scenario`, no server; on the Merge queue, DEV-ONLY
+    /// `EXP_DEV_CI_TAB=prs|releases|runners` on that tab (their pictures).
     pub(crate) fn specimen(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::build(Source::Specimen, window, cx)
+        let mut this = Self::build(Source::Specimen, window, cx);
+        if let Some(tab) = std::env::var("EXP_DEV_CI_TAB").ok().as_deref().and_then(CiTab::parse) {
+            this.state.tab = tab;
+        }
+        this
     }
 
     fn build(source: Source, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -535,53 +816,28 @@ impl CiPageView {
                 subscriptions.push(cx.observe(&collections.ci_jobs, |_, _, cx| cx.notify()));
                 subscriptions.push(cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()));
                 subscriptions.push(cx.observe(&collections.devices, |_, _, cx| cx.notify()));
+                subscriptions.push(cx.observe(&collections.repositories, |_, _, cx| cx.notify()));
+                subscriptions.push(cx.observe(&collections.merge_trains, |_, _, cx| cx.notify()));
+                subscriptions.push(cx.observe(&collections.merge_train_events, |_, _, cx| cx.notify()));
             }
-            let names = repo_names(cx);
-            subscriptions.push(cx.observe(&names, |_, _, cx| cx.notify()));
         }
         Self { source, state: PageState::default(), view, last: Value::Null, scroll: gpui::ScrollHandle::new(), _subscriptions: subscriptions }
     }
 
     fn on_action(&mut self, event: ActionEvent, cx: &mut Context<Self>) {
-        let value = event.payload.as_ref().and_then(|payload| payload["value"].as_str()).map(str::to_string);
         match event.name.as_str() {
             // eUI Select fires `change {open}` on open/close: only a value moves it.
             EVENT_STATUS => {
-                if let Some(value) = value {
+                if let Some(value) = event_value(&event) {
                     self.state.filter.status = CiFilter::parse(&value);
                 }
             }
             EVENT_REPOSITORY => {
-                if let Some(value) = value {
+                if let Some(value) = event_value(&event) {
                     self.state.filter.repository_id = (value != "all").then_some(value);
                 }
             }
-            EVENT_SOURCE => {
-                if let Some(value) = value {
-                    self.state.filter.source = match value.as_str() {
-                        "github" => Some(CiSource::Github),
-                        "exponential" => Some(CiSource::Exponential),
-                        _ => None,
-                    };
-                }
-            }
             EVENT_OPEN_RUNNERS => self.state.tab = CiTab::Runners,
-            EVENT_OPEN_RUN if self.source == Source::Live => {
-                let run = event.context["run"]
-                    .as_str()
-                    .or_else(|| event.payload.as_ref().and_then(|payload| payload["id"].as_str()))
-                    .map(str::to_string);
-                if let Some(run_id) = run {
-                    crate::navigation::on_active_window(cx, move |window, cx| {
-                        crate::navigation::navigate(window, cx, crate::navigation::Screen::CiRun { run_id, job: None });
-                    });
-                }
-            }
-            EVENT_OPEN_PR if self.source == Source::Live => {
-                if let Some(pr_id) = event.context["pr"].as_str() {
-                    open_pull_request(pr_id, cx);
-                }
-            }
             EVENT_OPEN_RUNNER if self.source == Source::Live => {
                 if let Some(device_id) = event.context["device"].as_str().map(str::to_string) {
                     crate::navigation::on_active_window(cx, move |window, cx| {
@@ -589,20 +845,85 @@ impl CiPageView {
                     });
                 }
             }
+            _ if self.source == Source::Live => {
+                on_shared_action(&event, cx);
+                return;
+            }
             _ => return,
         }
         cx.notify();
     }
 
+    /// The shots' tab (`ci_bench`).
+    #[cfg(test)]
+    pub(crate) fn set_tab(&mut self, tab: CiTab) {
+        self.state.tab = tab;
+    }
+
     fn input(&self, cx: &mut Context<Self>) -> Option<CiPageInput> {
         match self.source {
             Source::Specimen => Some(model::scenario()),
-            Source::Live => live_input(true, cx),
+            Source::Live => live_input(cx),
         }
     }
 }
 
-/// A train row's press: the PR's chat (its root session), else its page on
+/// A change's `value` (Select, Segmented, Menu).
+pub(crate) fn event_value(event: &ActionEvent) -> Option<String> {
+    event.payload.as_ref().and_then(|payload| payload["value"].as_str()).map(str::to_string)
+}
+
+/// The CI trees' shared events (the CI page and the repo page's Runs tab):
+/// open a run (`?job=` our job), a URL, a pull request; the queue's Merge
+/// now / Hold / Resume (`pullRequests.mergeNow` / `.hold`, a failure =
+/// the toast). False = not one of them.
+pub(crate) fn on_shared_action(event: &ActionEvent, cx: &mut App) -> bool {
+    let context = |key: &str| event.context[key].as_str().map(str::to_string);
+    match event.name.as_str() {
+        EVENT_OPEN_RUN => {
+            let run = context("run").or_else(|| event.payload.as_ref().and_then(|payload| payload["id"].as_str()).map(str::to_string));
+            if let Some(run_id) = run {
+                crate::navigation::on_active_window(cx, move |window, cx| {
+                    crate::navigation::navigate(window, cx, crate::navigation::Screen::CiRun { run_id, job: None });
+                });
+            }
+        }
+        EVENT_OPEN_JOB => {
+            if let (Some(run_id), Some(job)) = (context("run"), context("job")) {
+                crate::navigation::on_active_window(cx, move |window, cx| {
+                    crate::navigation::navigate(window, cx, crate::navigation::Screen::CiRun { run_id, job: Some(job) });
+                });
+            }
+        }
+        EVENT_OPEN_URL => {
+            if let Some(url) = context("url") {
+                cx.open_url(&url);
+            }
+        }
+        EVENT_OPEN_PR => {
+            if let Some(pr_id) = context("pr") {
+                open_pull_request(&pr_id, cx);
+            }
+        }
+        EVENT_QUEUE_MENU => {
+            let Some(pr) = context("pr") else { return true };
+            match event_value(event).as_deref() {
+                Some("merge-now") => crate::pr_merge::run_train_op(pr, crate::pr_merge::TrainOp::MergeNow, cx),
+                Some("hold") => crate::pr_merge::run_train_op(pr, crate::pr_merge::TrainOp::Hold(true), cx),
+                _ => {}
+            }
+        }
+        EVENT_RESUME => {
+            if let Some(pr) = context("pr") {
+                crate::pr_merge::run_train_op(pr, crate::pr_merge::TrainOp::Hold(false), cx);
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+/// A queue row's press: the PR's chat (its root session), else its page on
 /// the forge.
 pub(crate) fn open_pull_request(pr_id: &str, cx: &mut App) {
     let Some(store) = Store::try_global(cx) else { return };
@@ -688,11 +1009,14 @@ mod tests {
             input.jobs.clear();
             input.pull_requests.clear();
             input.runners.clear();
+            input.trains.clear();
+            input.train_events.clear();
         }
         input
     }
 
-    /// #EXP-2172: ci-page-view.json — the CI page node for node as web builds it.
+    /// #EXP-2172 / #EXP-2214: ci-page-view.json — the CI page node for node
+    /// as web builds it (the four tabs, the repo page's Runs tab).
     #[test]
     fn the_ci_page_replays_ci_page_view() {
         let fixture: Value = serde_json::from_str(VIEW_FIXTURE).unwrap();
@@ -702,9 +1026,11 @@ mod tests {
         for case in cases {
             let world = world(case["world"].as_str().unwrap());
             let phone = case["phone"].as_bool() == Some(true);
-            // #EXP-2169: a `repositoryId` case = the repo page's Runs tab.
+            // #EXP-2169: a `repositoryId` case = the repo page's Runs tab
+            // (#EXP-2214: its inner tab, the merge queue first).
             if let Some(repository_id) = case["repositoryId"].as_str() {
-                let got = normalized(&repo_runs_tree(&world, repository_id, phone));
+                let tab = case["tab"].as_str().and_then(CiTab::parse).unwrap_or_default();
+                let got = normalized(&repo_runs_tree(&world, repository_id, tab, phone));
                 if let Some(drift) = first_drift("", &got, &normalized(&case["tree"])) {
                     panic!("{}: {drift}", case["name"]);
                 }

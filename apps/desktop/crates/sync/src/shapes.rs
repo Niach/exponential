@@ -1,4 +1,4 @@
-//! The 38 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 40 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -88,13 +88,13 @@ impl ShapeSpec {
     }
 }
 
-/// The 38 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
+/// The 40 shapes, in §5.9 order (#EXP-1656 appended `skills`; #FEED-219
 /// added `composer_drafts` after `issue_drafts`; #EXP-1804 appended
-/// `ci_runs` + `ci_jobs`; #EXP-1832 appended `sidebar_layout`; #EXP-2171 appended `repositories`). Column sets mirror `packages/db-schema`
+/// `ci_runs` + `ci_jobs`; #EXP-1832 appended `sidebar_layout`; #EXP-2171 appended `repositories`; #EXP-2214 appended `merge_trains` + `merge_train_events`). Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 38] = [
+pub const SHAPES: [ShapeSpec; 40] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -990,6 +990,8 @@ pub const SHAPES: [ShapeSpec; 38] = [
             "external_attempt",
             "external_access",
             "title",
+            // #EXP-2214: the merge queue run it tests.
+            "merge_train_id",
             "created_at",
             "updated_at",
         ],
@@ -1084,10 +1086,61 @@ pub const SHAPES: [ShapeSpec; 38] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "merge_trains",
+        path: "/api/shapes/merge-trains",
+        // #EXP-2214 (ci-page.json MERGE QUEUE TAB): the merge queue's runs,
+        // member-only by `team_id`. Byte-matches the proxy's
+        // MERGE_TRAIN_COLUMNS (`heads`, `run_ref`, `conflicts`, `error` stay
+        // behind it); an older server 404s it ([`ShapeSpec::may_be_absent`]).
+        columns: &[
+            "id",
+            "team_id",
+            "repository_id",
+            "base",
+            "base_sha",
+            "units",
+            "state",
+            "attempt",
+            "bisect_of",
+            "pending",
+            "untested",
+            "tested_sha",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "merge_train_events",
+        path: "/api/shapes/merge-train-events",
+        // #EXP-2214: the merge queue's history (Landed, Sent back),
+        // member-only by `team_id`. Byte-matches MERGE_TRAIN_EVENT_COLUMNS.
+        columns: &[
+            "id",
+            "team_id",
+            "repository_id",
+            "pull_request_id",
+            "merge_train_id",
+            "kind",
+            "base",
+            "attempt",
+            "reason",
+            "checks",
+            "ci_job_id",
+            "job_url",
+            "files",
+            "sha",
+            "by_user_id",
+            "created_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Shapes a server older than this build may not serve (#FEED-219).
-pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts", "ci_runs", "ci_jobs", "sidebar_layout", "repositories"];
+pub const MAY_BE_ABSENT: &[&str] = &["composer_drafts", "ci_runs", "ci_jobs", "sidebar_layout", "repositories", "merge_trains", "merge_train_events"];
 
 /// Look a shape up by its table name.
 pub fn shape_by_name(name: &str) -> Option<&'static ShapeSpec> {
@@ -1099,8 +1152,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_38_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 38);
+    fn registry_has_40_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 40);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1148,6 +1201,9 @@ mod tests {
             ("sidebar_layout", "sidebar-layout.ts", "SIDEBAR_LAYOUT_COLUMNS"),
             // #EXP-2171: `repositories` the same way.
             ("repositories", "repositories.ts", "REPOSITORY_COLUMNS"),
+            // #EXP-2214: the merge queue's runs and history.
+            ("merge_trains", "merge-trains.ts", "MERGE_TRAIN_COLUMNS"),
+            ("merge_train_events", "merge-train-events.ts", "MERGE_TRAIN_EVENT_COLUMNS"),
         ] {
             let spec = shape_by_name(name).unwrap();
             assert_eq!(spec.pk, PkKind::Id);
