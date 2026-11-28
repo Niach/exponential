@@ -14,6 +14,7 @@ import {
   expToolCaption,
   builtinExpTools,
   expToolDisplay,
+  lastToolLine,
   modeChip,
   parseConfigState,
   planModeChipLabel,
@@ -2197,6 +2198,17 @@ describe(`expToolDisplay`, () => {
     // The contract names the subject field and the preview kind.
     expect(row.subjectKey).toBe(`title`)
     expect(row.result).toBe(`issue`)
+  })
+})
+
+// ── EDE-271: computer-server tools read their contract captions ─────────────
+
+describe(`computer tool steps`, () => {
+  it(`the status line reads the caption, never the raw name`, () => {
+    expect(lastToolLine([{ kind: `tool`, name: `mcp__computer__screenshot`, settled: false }])).toBe(`Taking screenshot`)
+    expect(lastToolLine([{ kind: `tool`, name: `mcp__computer__type`, detail: `hello`, settled: true }])).toBe(`Typed hello`)
+    // Another server's same-named tool stays raw.
+    expect(lastToolLine([{ kind: `tool`, name: `mcp__other__type`, settled: true }])).toBe(`mcp__other__type`)
   })
 })
 

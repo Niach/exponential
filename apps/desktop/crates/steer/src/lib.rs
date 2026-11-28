@@ -177,7 +177,7 @@ pub use history::{
 pub use enet_steer::{StoredJournals, StoredSession};
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use tool_group_summary::{tool_group_summary, ToolCallSummary, TOOL_GROUP_SUMMARY_SEPARATOR};
-pub use exp_tool::{exp_tool_display, exp_tool_row, exp_tool_subject_key, ExpToolDisplay};
+pub use exp_tool::{computer_tool_caption, exp_tool_display, exp_tool_row, exp_tool_subject_key, ExpToolDisplay};
 pub use exp_tool_group::{
     exp_tool_group_caption, exp_tool_run_end, is_exp_tool_call, ExpToolGroupCall,
 };

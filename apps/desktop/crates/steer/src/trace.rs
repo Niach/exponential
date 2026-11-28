@@ -182,6 +182,15 @@ pub fn trace_tool(
         Some(TraceStatus::Running)
     };
     let detail = clean(detail);
+    // EDE-271: a computer tool reads its contract caption whatever its kind.
+    if let Some(caption) = crate::exp_tool::computer_tool_caption(name, settled || failed) {
+        return TraceLine {
+            icon: icons::TOOL.to_string(),
+            title: caption.to_string(),
+            description: (!detail.is_empty()).then_some(detail),
+            status,
+        };
+    }
     let Some((running, past, blank, icon)) = verbs(tool_kind) else {
         let name = clean(Some(name));
         return TraceLine {

@@ -91,6 +91,23 @@ pub fn exp_tool_display(name: &str, settled: bool) -> Option<ExpToolDisplay> {
     })
 }
 
+/// EDE-271 — a computer-server tool's contract caption
+/// (`computerToolDisplay`): progressive while it runs, done once it settled;
+/// `None` for any other name. The match is EXACT (`mcp__computer__` + a row,
+/// trimmed), so another server's `click` or `type` stays raw. Mirrored ×4
+/// (TS `trace.ts` `computerToolCaption`, iOS/Android
+/// `ExpToolDisplay.computerCaption`); `trace::trace_tool` reads it first.
+pub fn computer_tool_caption(name: &str, settled: bool) -> Option<&'static str> {
+    let row = name.trim().strip_prefix(domain::contract::COMPUTER_TOOL_PREFIX)?;
+    let index = domain::contract::COMPUTER_TOOL_NAMES.iter().position(|tool| *tool == row)?;
+    let captions = if settled {
+        domain::contract::COMPUTER_TOOL_DONE
+    } else {
+        domain::contract::COMPUTER_TOOL_PROGRESSIVE
+    };
+    Some(captions[index])
+}
+
 /// EXP-862 — one built-in Exponential tool as the MCP servers page lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuiltinExpTool {
@@ -263,6 +280,26 @@ mod tests {
                 domain::contract::EXP_TOOL_PREVIEW_NAMES.contains(name),
                 "{name} has no preview spec"
             );
+        }
+    }
+
+    /// EDE-271: every computer row has both captions; only the exact
+    /// `mcp__computer__` name resolves.
+    #[test]
+    fn computer_tools_read_their_contract_captions() {
+        let rows = domain::contract::COMPUTER_TOOL_NAMES.len();
+        assert!(rows > 0);
+        assert_eq!(domain::contract::COMPUTER_TOOL_PROGRESSIVE.len(), rows);
+        assert_eq!(domain::contract::COMPUTER_TOOL_DONE.len(), rows);
+        for (index, row) in domain::contract::COMPUTER_TOOL_NAMES.iter().enumerate() {
+            let name = format!("{}{row}", domain::contract::COMPUTER_TOOL_PREFIX);
+            assert_eq!(computer_tool_caption(&name, false), Some(domain::contract::COMPUTER_TOOL_PROGRESSIVE[index]));
+            assert_eq!(computer_tool_caption(&format!(" {name} "), true), Some(domain::contract::COMPUTER_TOOL_DONE[index]));
+        }
+        assert_eq!(computer_tool_caption("mcp__computer__screenshot", false), Some("Taking screenshot"));
+        assert_eq!(computer_tool_caption("mcp__computer__type", true), Some("Typed"));
+        for name in ["type", "left_click", "mcp__other__type", "x_mcp__computer__type", "mcp__computer__nope", "mcp__computer__", ""] {
+            assert_eq!(computer_tool_caption(name, true), None, "{name}");
         }
     }
 

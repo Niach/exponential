@@ -83,4 +83,22 @@ final class ExpToolDisplayTests: XCTestCase {
             XCTAssertEqual(ExpToolResultKind(wire: kind).rawValue, kind)
         }
     }
+
+    // EDE-271: every computer-server row reads its contract captions; only the
+    // exact `mcp__computer__` name resolves.
+    func testComputerToolsReadTheirContractCaptions() {
+        XCTAssertFalse(DomainContract.computerToolNames.isEmpty)
+        XCTAssertEqual(DomainContract.computerToolProgressive.count, DomainContract.computerToolNames.count)
+        XCTAssertEqual(DomainContract.computerToolDone.count, DomainContract.computerToolNames.count)
+        for (index, row) in DomainContract.computerToolNames.enumerated() {
+            let name = DomainContract.computerToolPrefix + row
+            XCTAssertEqual(ExpToolDisplay.computerCaption(toolName: name, settled: false), DomainContract.computerToolProgressive[index])
+            XCTAssertEqual(ExpToolDisplay.computerCaption(toolName: " \(name) ", settled: true), DomainContract.computerToolDone[index])
+        }
+        XCTAssertEqual(ExpToolDisplay.computerCaption(toolName: "mcp__computer__screenshot", settled: false), "Taking screenshot")
+        XCTAssertEqual(ExpToolDisplay.computerCaption(toolName: "mcp__computer__type", settled: true), "Typed")
+        for name in ["type", "left_click", "mcp__other__type", "x_mcp__computer__type", "mcp__computer__nope", "mcp__computer__", ""] {
+            XCTAssertNil(ExpToolDisplay.computerCaption(toolName: name, settled: true), name)
+        }
+    }
 }
