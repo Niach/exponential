@@ -3,12 +3,13 @@
 //! Box + Text + Row + Button) through the gpui painter, HEADLESS (as
 //! `bench_list`): gpui's Linux text system with the conformance fonts,
 //! 1280 × 1240. Every delta is an `updateComponents` of one component,
-//! then a full frame: the core pass (`layout_now`) plus gpui's layout,
-//! prepaint and paint of the element tree (`Window::draw`). The split:
-//! `apply` (the update), `pass` (reduce + rebuild + restyle + taffy +
-//! measure + the painter's caches; `core` = the core's own share of it),
-//! `flush` (gpui's effects after the update) and `draw` (gpui). 20 warm-up
-//! deltas, 200 timed.
+//! then the frame: the core pass (`layout_now`) plus gpui's layout,
+//! prepaint and paint of the element tree (`Window::draw`, which the test
+//! platform runs as the update's effects flush: the frame is done when
+//! `update` returns). The split: `apply` (the update), `pass` (reduce +
+//! rebuild + restyle + taffy + measure + the painter's caches; `core` = the
+//! core's own share of it) and `draw` (gpui's frame). `redraw` = one more
+//! frame with nothing changed (gpui's floor). 20 warm-up deltas, 200 timed.
 //!
 //! ```text
 //! RUSTUP_TOOLCHAIN=1.96.0 cargo run --release -p eui-gpui --example bench_delta
@@ -45,7 +46,7 @@ mod linux {
     #[derive(Default, Clone, Copy)]
     struct Split {
         apply: f64,
-        flush: f64,
+        redraw: f64,
         pass: f64,
         core: f64,
         draw: f64,
@@ -124,11 +125,11 @@ mod linux {
                         Instant::now()
                     })
                     .unwrap();
-                s.flush = closed.elapsed().as_secs_f64() * 1000.0;
+                s.draw = closed.elapsed().as_secs_f64() * 1000.0;
+                s.total = t0.elapsed().as_secs_f64() * 1000.0;
                 let d = Instant::now();
                 cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx)).unwrap();
-                s.draw = d.elapsed().as_secs_f64() * 1000.0;
-                s.total = t0.elapsed().as_secs_f64() * 1000.0;
+                s.redraw = d.elapsed().as_secs_f64() * 1000.0;
                 if k >= 20 {
                     splits.push(s);
                 }
@@ -136,7 +137,7 @@ mod linux {
             let col = |f: fn(&Split) -> f64| stats(splits.iter().map(f).collect());
             let fmt = |(m, med, p): (f64, f64, f64)| format!("{m:.3} / {med:.3} / {p:.3}");
             println!("  {name:<17} total {}", fmt(col(|s| s.total)));
-            println!("    apply {} · pass {} (core {}) · flush {} · draw {}", fmt(col(|s| s.apply)), fmt(col(|s| s.pass)), fmt(col(|s| s.core)), fmt(col(|s| s.flush)), fmt(col(|s| s.draw)));
+            println!("    apply {} · pass {} (core {}) · draw {} · redraw {}", fmt(col(|s| s.apply)), fmt(col(|s| s.pass)), fmt(col(|s| s.core)), fmt(col(|s| s.draw)), fmt(col(|s| s.redraw)));
         }
         std::mem::forget(cx);
     }
