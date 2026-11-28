@@ -30,7 +30,7 @@ use x11rb::{
 };
 
 use std::{
-    cell::RefCell, ffi::c_void, fmt::Display, num::NonZeroU32, ptr::NonNull, rc::Rc, sync::Arc,
+    cell::{Cell, RefCell}, ffi::c_void, fmt::Display, num::NonZeroU32, ptr::NonNull, rc::Rc, sync::Arc,
 };
 
 use super::{X11Display, XINPUT_ALL_DEVICE_GROUPS, XINPUT_ALL_DEVICES};
@@ -313,6 +313,61 @@ pub(crate) struct X11WindowStatePtr {
     pub(crate) callbacks: Rc<RefCell<Callbacks>>,
     xcb: Rc<XCBConnection>,
     pub(crate) x_window: xproto::Window,
+    // Exponential patch (#PERF-17): the refresh timer's frame demand.
+    pub(crate) frames: Rc<FrameDemand>,
+}
+
+/// Exponential patch (#PERF-17): whether the window's refresh timer may
+/// stop. Upstream's X11 timer ticked at the display's rate for as long as a
+/// window was visible, idle or not (1-1.3 % of a core for a still window).
+/// Like macOS's `MetalFrames`, a tick in which GPUI neither drew, presented
+/// nor asked for another frame pauses the timer; GPUI's frame waker
+/// (`frame_waker`, called when the window turns dirty or a next-frame
+/// callback is queued) resumes it.
+#[derive(Default)]
+pub(crate) struct FrameDemand {
+    /// GPUI asked for a frame since the current tick began.
+    woken: Cell<bool>,
+    /// The current tick drew or presented.
+    used: Cell<bool>,
+    /// The timer is stopped until the next wake.
+    paused: Cell<bool>,
+    /// Restarts the client's refresh timer (set once by the client).
+    resume: RefCell<Option<Rc<dyn Fn()>>>,
+}
+
+impl FrameDemand {
+    pub(crate) fn set_resume(&self, resume: Rc<dyn Fn()>) {
+        *self.resume.borrow_mut() = Some(resume);
+    }
+
+    pub(crate) fn begin_tick(&self) {
+        self.woken.set(false);
+        self.used.set(false);
+    }
+
+    /// Whether the tick that just ran left no demand behind.
+    pub(crate) fn tick_was_idle(&self) -> bool {
+        !self.used.get() && !self.woken.get()
+    }
+
+    pub(crate) fn set_paused(&self, paused: bool) {
+        self.paused.set(paused);
+    }
+
+    fn mark_used(&self) {
+        self.used.set(true);
+    }
+
+    pub(crate) fn wake(&self) {
+        self.woken.set(true);
+        if self.paused.replace(false) {
+            let resume = self.resume.borrow().clone();
+            if let Some(resume) = resume {
+                resume();
+            }
+        }
+    }
 }
 
 impl rwh::HasWindowHandle for RawWindow {
@@ -958,6 +1013,7 @@ impl X11Window {
             callbacks: Rc::new(RefCell::new(Callbacks::default())),
             xcb: xcb.clone(),
             x_window,
+            frames: Rc::new(FrameDemand::default()),
         };
 
         let state = ptr.state.borrow_mut();
@@ -1748,7 +1804,22 @@ impl PlatformWindow for X11Window {
         self.0.callbacks.borrow_mut().button_layout_changed = Some(callback);
     }
 
+    // Exponential patch (#PERF-17): resume a refresh timer that paused idle.
+    fn frame_waker(&self) -> Option<Rc<dyn Fn()>> {
+        let frames = Rc::downgrade(&self.0.frames);
+        Some(Rc::new(move || {
+            if let Some(frames) = frames.upgrade() {
+                frames.wake();
+            }
+        }))
+    }
+
+    fn schedule_frame(&self) {
+        self.0.frames.wake();
+    }
+
     fn draw(&self, scene: &Scene) {
+        self.0.frames.mark_used();
         let mut inner = self.0.state.borrow_mut();
         let inner = &mut *inner;
         let Some(renderer) = &mut inner.renderer else {
@@ -2072,5 +2143,47 @@ struct TrivialDeactivationHandler {
 impl accesskit::DeactivationHandler for TrivialDeactivationHandler {
     fn deactivate_accessibility(&mut self) {
         (self.callback)();
+    }
+}
+
+// Exponential patch (#PERF-17).
+#[cfg(test)]
+mod frame_demand_tests {
+    use super::FrameDemand;
+    use std::{cell::Cell, rc::Rc};
+
+    fn demand() -> (FrameDemand, Rc<Cell<u32>>) {
+        let frames = FrameDemand::default();
+        let resumed = Rc::new(Cell::new(0));
+        frames.set_resume(Rc::new({
+            let resumed = resumed.clone();
+            move || resumed.set(resumed.get() + 1)
+        }));
+        (frames, resumed)
+    }
+
+    #[test]
+    fn frame_demand_an_idle_tick_pauses_and_one_wake_resumes() {
+        let (frames, resumed) = demand();
+        frames.begin_tick();
+        assert!(frames.tick_was_idle());
+        frames.set_paused(true);
+        frames.wake();
+        frames.wake();
+        assert_eq!(resumed.get(), 1, "only the first wake restarts the timer");
+    }
+
+    #[test]
+    fn frame_demand_a_drawn_or_woken_tick_keeps_ticking() {
+        let (frames, resumed) = demand();
+        frames.begin_tick();
+        frames.mark_used();
+        assert!(!frames.tick_was_idle());
+        frames.begin_tick();
+        frames.wake();
+        assert!(!frames.tick_was_idle());
+        assert_eq!(resumed.get(), 0, "a running timer is never restarted");
+        frames.begin_tick();
+        assert!(frames.tick_was_idle(), "each tick starts without demand");
     }
 }
