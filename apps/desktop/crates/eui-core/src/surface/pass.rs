@@ -132,18 +132,7 @@ impl Surface {
             self.invalidate_measures();
         }
         self.last_measurer = Some(measurer);
-        if self.needs_build {
-            self.subtree_pending.clear();
-            self.rebuild();
-        } else {
-            for id in std::mem::take(&mut self.subtree_pending) {
-                if !self.rebuild_subtree(&id) {
-                    self.rebuild();
-                    self.subtree_pending.clear();
-                    break;
-                }
-            }
-        }
+        self.apply_pending_builds();
         self.restyle();
         self.reveal_select_choices();
     }
@@ -959,6 +948,7 @@ impl Surface {
                         w.scroll_offset = oy;
                         if (ay - oy).abs() > 0.01 && self.lists.iter().any(|l| l.id == id && l.windowed) {
                             self.subtree_pending.insert(id.clone());
+                            self.rewindow.insert(id.clone());
                             reclamped = true;
                         }
                     }
@@ -1017,6 +1007,7 @@ impl Surface {
                 // window does not hold.
                 if (changed && (range != spec.range || pad(&offsets, range) != pad(&spec.offsets, spec.range))) || !covered {
                     self.subtree_pending.insert(spec.id.clone());
+                    self.rewindow.insert(spec.id.clone());
                     rewindow |= !covered;
                 }
             }

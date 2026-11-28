@@ -112,6 +112,21 @@ pub struct LNode {
     pub form_disabled: bool,
     /// A live region: `polite | assertive` (Text `live`, Toast, Form errors).
     pub live: Option<String>,
+    /// #PERF-16: a windowed List's row kept as it is: this build node only
+    /// stands for the existing slot (and its whole subtree), which the
+    /// reconcile keeps untouched ([`BuildContext::kept_rows`]).
+    pub kept: Option<u32>,
+}
+
+/// #PERF-16: a windowed List's row a re-window keeps (its slot and the place
+/// it was built at: the row is kept only at the same `posInSet`/`setSize`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeptRow {
+    pub slot: u32,
+    /// The List's id.
+    pub list: String,
+    pub pos_in_set: Option<u64>,
+    pub set_size: Option<u64>,
 }
 
 /// The source of an instance node: the source node's id and the template
@@ -491,6 +506,10 @@ pub struct BuildContext<'a> {
     /// VAPP-200: a read-only surface: every writing control builds as
     /// `disabled: true` ([`crate::read_only::disables`]).
     pub read_only: bool,
+    /// #PERF-16: when a rebuild only re-windows (no other input moved since
+    /// the last build), the rows of the windowed Lists the surface may keep
+    /// as they are, by row id.
+    pub kept_rows: Option<&'a HashMap<String, KeptRow>>,
 }
 
 pub struct Built {
@@ -805,6 +824,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             form,
             form_disabled: false,
             live: None,
+            kept: None,
         }
     }
 
@@ -1381,6 +1401,40 @@ impl<'a, 'b> Builder<'a, 'b> {
         let suffix = format!("{}{}", self.enclosing_suffix(node), self.item_suffixes(t, &base).get(idx).cloned().unwrap_or_else(|| format!(".{idx}")));
         let item = self.item_instance(&node.id, tpl, &suffix, &t.component);
         self.add(&item.node, Some(parent), layer, &item_scope, hidden)
+    }
+
+    /// #PERF-16: child `i` of the windowed List (temp `parent`) as a
+    /// KEPT row: the surface's slot stands for it, nothing is built
+    /// ([`BuildContext::kept_rows`]). `None` = build it.
+    pub(crate) fn kept_row(&mut self, parent: u32, node: &UiNode, i: usize, set_size: usize, scope: &str) -> Option<u32> {
+        let kept = self.ctx.kept_rows?;
+        if kept.is_empty() {
+            return None;
+        }
+        let (id, tpl) = if let Some(child) = node.children.get(i) {
+            (child.id.clone(), None)
+        } else {
+            let t = node.template.as_ref()?;
+            let base = crate::data::absolute_path(&t.path, scope);
+            let idx = i.checked_sub(node.children.len())?;
+            let tpl = (self.ctx.template)(&t.component)?;
+            let suffix = self.item_suffixes(t, &base).get(idx).cloned()?;
+            (format!("{}{}{suffix}", tpl.id, self.enclosing_suffix(node)), Some((t.component.clone(), tpl)))
+        };
+        let row = kept.get(&id)?;
+        if row.list != self.nodes[parent as usize].id || row.pos_in_set != Some(i as u64 + 1) || row.set_size != Some(set_size as u64) {
+            return None;
+        }
+        if let Some((component, tpl)) = tpl {
+            // The item still counts against `maxTemplateItems`.
+            if !self.take_template_item(&component, tpl) {
+                return None;
+            }
+        }
+        let layer = self.nodes[parent as usize].layer;
+        let mut n = self.blank(&id, "Box", Some(parent), layer, NodeKind::Container, scope);
+        n.kept = Some(row.slot);
+        Some(self.push(n))
     }
 
     /// A responsive native prop at the active breakpoint (`Drawer.side`).

@@ -640,6 +640,14 @@ pub struct Surface {
     /// Nodes whose subtree alone rebuilds next pass (a moved window, local
     /// tab/accordion/carousel/toggle state).
     subtree_pending: BTreeSet<String>,
+    /// #PERF-16: the windowed Lists in `subtree_pending` only because their
+    /// window moved (a scroll, a re-measure, a clamp): a rebuild for these
+    /// alone keeps the rows still in the window (`reconcile::kept_rows`).
+    rewindow: BTreeSet<String>,
+    /// #PERF-16: the pending rebuilds being applied only re-window.
+    reuse_rows: bool,
+    /// #PERF-16: the rows the current build may keep, by row id.
+    kept_rows: HashMap<String, crate::layout_tree::KeptRow>,
     /// Hover overlays waiting for their close timer.
     hover_closing: HashSet<String>,
     /// What the last build knew that events and subtree rebuilds need: the
@@ -756,6 +764,9 @@ impl Surface {
             built_nodes: 0,
             step_state: None,
             subtree_pending: BTreeSet::new(),
+            rewindow: BTreeSet::new(),
+            reuse_rows: false,
+            kept_rows: HashMap::new(),
             hover_closing: HashSet::new(),
             seed: Default::default(),
             formatter: Arc::new(crate::format::EnglishFormatter),
@@ -1998,18 +2009,7 @@ impl Surface {
             return;
         }
         self.ensure_reduced();
-        if self.needs_build {
-            self.subtree_pending.clear();
-            self.rebuild();
-        } else {
-            for id in std::mem::take(&mut self.subtree_pending) {
-                if !self.rebuild_subtree(&id) {
-                    self.rebuild();
-                    self.subtree_pending.clear();
-                    break;
-                }
-            }
-        }
+        self.apply_pending_builds();
     }
 
     /// EXP-1259: the node whose hover/focus a part borrows: a Tabs `close`

@@ -116,3 +116,56 @@ fn new_templates_drop_the_kept_instances() {
     assert!(labels.iter().all(|t| t.as_str().is_some_and(|t| t.starts_with('i'))), "{labels:?}");
     assert!(s.nodes().iter().all(|n| !n.id.starts_with("badge.")), "the old template's nodes are gone");
 }
+
+/// #PERF-16: a re-window keeps the rows that stay as they are (their slots,
+/// nothing built for them): only the rows entering are built.
+#[test]
+fn a_moved_window_keeps_the_rows_that_stay() {
+    let mut s = chat(2_000);
+    let mut m = fixed();
+    for _ in 0..3 {
+        s.layout(&mut m);
+    }
+    s.scroll("list", 2_000.0);
+    for _ in 0..3 {
+        s.layout(&mut m);
+    }
+    let before = s.layout(&mut m).lists[0].clone();
+    let stays = format!("row.i{}", before.start + 8);
+    let slot = s.index_of(&stays).unwrap();
+    let label = s.index_of(&format!("label.i{}", before.start + 8)).unwrap();
+    // Two rows on: two rows enter, two leave.
+    s.scroll("list", 2_080.0);
+    let step = s.layout(&mut m);
+    assert!(step.rebuilt);
+    assert_eq!(step.lists[0].start, before.start + 2);
+    assert_eq!(s.index_of(&stays), Some(slot), "a staying row keeps its slot");
+    assert_eq!(s.index_of(&format!("label.i{}", before.start + 8)), Some(label));
+    // The List, its dividers/spacers and the two new rows (3 nodes each):
+    // never the ~20 staying rows.
+    assert!(step.built_nodes < 20, "built {} nodes", step.built_nodes);
+}
+
+/// #PERF-16: a data change in the same frame as a scroll rebuilds every row
+/// (a kept row never shows stale data).
+#[test]
+fn a_data_change_with_a_scroll_rebuilds_the_rows_that_stay() {
+    let mut s = chat(2_000);
+    let mut m = fixed();
+    for _ in 0..3 {
+        s.layout(&mut m);
+    }
+    s.scroll("list", 2_000.0);
+    for _ in 0..3 {
+        s.layout(&mut m);
+    }
+    let start = s.layout(&mut m).lists[0].start as usize;
+    let row = start + 8;
+    s.set_data(&format!("/items/{row}/text"), Some(json!("changed"))).unwrap();
+    s.scroll("list", 2_080.0);
+    for _ in 0..2 {
+        s.layout(&mut m);
+    }
+    let text = s.nodes().into_iter().find(|n| n.id == format!("label.i{row}")).and_then(|n| n.props.get("text").cloned());
+    assert_eq!(text, Some(json!("changed")));
+}

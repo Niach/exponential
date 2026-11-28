@@ -415,7 +415,10 @@ impl Builder<'_, '_> {
                 if divided && i > range.start {
                     self.divider(index, &owner, horizontal, i);
                 }
-                let child = self.one_child(index, node, i, scope, false);
+                let child = match self.kept_row(index, node, i, keys.len(), scope) {
+                    Some(c) => Some(c),
+                    None => self.one_child(index, node, i, scope, false),
+                };
                 // Every item, windowed or not, carries its place in the
                 // WHOLE list for assistive tech (round 2 §5; children
                 // first, then the template's items, like the reference).
@@ -490,7 +493,11 @@ impl Builder<'_, '_> {
                 Row::Static(i) => i,
                 Row::Item(i) => statics + i,
             };
-            if let Some(c) = self.one_child(index, node, item, scope, false) {
+            let child = match self.kept_row(index, node, item, item_keys.len(), scope) {
+                Some(c) => Some(c),
+                None => self.one_child(index, node, item, scope, false),
+            };
+            if let Some(c) = child {
                 self.default_a11y(c, "posInSet", json!(item + 1));
                 self.default_a11y(c, "setSize", json!(item_keys.len()));
             }
