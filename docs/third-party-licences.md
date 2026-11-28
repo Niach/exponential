@@ -710,6 +710,7 @@ the same licence, and with no Reserved Font Name the derived name may keep
 | `ExponentialUI` (SwiftPM) | `Sources/ExponentialUI/Resources/Fonts/InterSymbols-*.ttf` | `OFL-Inter.txt` in the same resource folder |
 | `ui-compose` (AAR) | `src/main/res/font/inter_symbols_*.ttf` | `ui-compose/OFL-Inter.txt` |
 | `eui-gpui` (crate) | `assets/fonts/InterSymbols-*.ttf` | `assets/fonts/OFL-Inter.txt` |
+| the web app (the MCP Apps views' `/fonts/` files, inlined nowhere: genui.html's 2 MiB cap) | `apps/web/public/fonts/InterSymbols-*.woff2` | `apps/web/public/fonts/InterSymbols-OFL.txt` |
 
 The curated supplement's `Inter` entry (`packages/licenses/curated/supplement.ts`,
 `FONTS`) now lists `web`, `ios`, `android` and the three app runners beside
