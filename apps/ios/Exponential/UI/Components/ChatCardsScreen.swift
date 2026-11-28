@@ -14,7 +14,7 @@ struct ChatCardsScreen: View {
 
     @Environment(AppDependencies.self) private var deps
 
-    static let kinds: Set<String> = ["record-form-field-states", "work-card", "script-card", "comment-call-card", "trace", "code-block", "chat-strip", "ask-dock", "dock-card", "plan-card", "elicitation-card", "chat-list", "phone-tab-bar", "team-avatar", "phone-page-header", "chat-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "needs-you", "results-tab", "results-tab-lightbox", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "sealed-locked", "pr-row", "pr-checks", "ci-run", "ci", "ci-run-github", "runner-settings", "repo-runs", "repo-ci", "session-row", "device-attention", "device-attention-menu", "install-approval", "install-waiting"]
+    static let kinds: Set<String> = ["record-form-field-states", "work-card", "script-card", "comment-call-card", "trace", "code-block", "chat-strip", "ask-dock", "dock-card", "plan-card", "elicitation-card", "chat-list", "phone-tab-bar", "team-avatar", "phone-page-header", "chat-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "needs-you", "results-tab", "results-tab-lightbox", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "sealed-locked", "pr-row", "pr-checks", "ci-run", "ci", "ci-run-github", "ci-prs", "ci-releases", "ci-run-queue", "runner-settings", "repo-runs", "repo-ci", "session-row", "device-attention", "device-attention-menu", "install-approval", "install-waiting"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -36,13 +36,16 @@ struct ChatCardsScreen: View {
                 .preferredColorScheme(.dark)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("chat-cards-screen")
-        } else if ["ci", "ci-run", "ci-run-github", "repo-runs"].contains(kind) {
-            // #EXP-2169: whole pushed pages under the route's own header.
+        } else if ["ci", "ci-prs", "ci-releases", "ci-run", "ci-run-github", "ci-run-queue", "repo-runs"].contains(kind) {
+            // #EXP-2169: whole pushed pages under the route's own header
+            // (#EXP-2214: the CI page's tabs and a merge queue run, capture only).
             Group {
                 switch kind {
                 case "ci": CiPageSpecimens()
+                case "ci-prs": CiPageSpecimens(tab: .prs)
+                case "ci-releases": CiPageSpecimens(tab: .releases)
                 case "repo-runs": RepoRunsSpecimens()
-                default: CiRunSpecimens(github: kind == "ci-run-github")
+                default: CiRunSpecimens(github: kind == "ci-run-github", queue: kind == "ci-run-queue")
                 }
             }
             .accessibilityElement(children: .contain)

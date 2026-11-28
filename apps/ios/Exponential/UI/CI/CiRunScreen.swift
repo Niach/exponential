@@ -33,6 +33,9 @@ struct CiRunScreen: View {
         var pullRequest: CiRun.PullRequest?
         /// The author's name (the users row of createdByUserId).
         var author: String?
+        /// #EXP-2214 (ci-page.json `runContext`): its kind, a merge queue
+        /// run's batch and What happened.
+        var context: CiPage.RunContext?
     }
 
     @State private var rows = Rows()
@@ -51,7 +54,10 @@ struct CiRunScreen: View {
 
     private var model: CiRunView.Model? {
         rows.run.map {
-            CiRunView.Model(run: $0.run, repository: repository, pullRequest: rows.pullRequest, author: rows.author, jobs: jobs)
+            CiRunView.Model(
+                run: $0.run, repository: repository, pullRequest: rows.pullRequest, author: rows.author, jobs: jobs,
+                context: rows.context
+            )
         }
     }
 
@@ -128,7 +134,8 @@ struct CiRunScreen: View {
             onFix: fix,
             onOpenExternal: {
                 if let url = rows.run?.externalUrl.flatMap(URL.init(string:)) { openURL(url) }
-            }
+            },
+            onOpenPr: openPullRequest
         )
     }
 
@@ -151,7 +158,24 @@ struct CiRunScreen: View {
             let pullRequest = try run?.pullRequestId.flatMap { try PullRequestEntity.fetchOne(db, key: $0) }
                 .map { CiRun.PullRequest(number: $0.number, base: $0.base) }
             let author = try run?.createdByUserId.flatMap { try UserEntity.fetchOne(db, key: $0) }?.name
-            return Rows(run: run, jobs: jobs, labels: labels, pullRequest: pullRequest, author: author)
+            // A merge queue run reads its train, the train's history and the
+            // repository's PRs; any run its kind (the repository's branch).
+            let context = try run.map { run -> CiPage.RunContext in
+                let trainId = run.mergeTrainId
+                let trains = try trainId.map { try MergeTrainEntity.filter(key: $0).fetchAll(db) } ?? []
+                let events = try trainId.map { try MergeTrainEventEntity.filter(Column("merge_train_id") == $0).fetchAll(db) } ?? []
+                let prs = trainId == nil
+                    ? try run.pullRequestId.map { try PullRequestEntity.filter(key: $0).fetchAll(db) } ?? []
+                    : try PullRequestEntity.filter(Column("repository_id") == run.repositoryId).fetchAll(db)
+                let repos = try RepositoryEntity.filter(key: run.repositoryId).fetchAll(db)
+                let input = CiPage.Input(
+                    runs: [], jobs: jobs.map(\.pageJob), repos: repos.map(\.pageRepo), pullRequests: prs.map(\.pagePr),
+                    sessions: [], runners: [], trains: trains.map(\.pageTrain), trainEvents: events.map(\.pageEvent),
+                    viewerId: "", now: ""
+                )
+                return CiPage.runContext(run.pageRun, input)
+            }
+            return Rows(run: run, jobs: jobs, labels: labels, pullRequest: pullRequest, author: author, context: context)
         }
         do {
             for try await next in values.values(in: pool) {
@@ -174,6 +198,18 @@ struct CiRunScreen: View {
                 if chunk.complete { return }
             }
             try? await Task.sleep(for: .milliseconds(CiRun.liveTailMs))
+        }
+    }
+
+    /// #EXP-2214 (web: the PR's page): a What happened row opens the pull
+    /// request's page on the forge.
+    private func openPullRequest(_ id: String) {
+        Task {
+            guard let pool = try? deps.db.pool(forAccountId: accountId),
+                  let pr = try? await pool.read({ db in try PullRequestEntity.fetchOne(db, key: id) }),
+                  let url = URL(string: pr.url)
+            else { return }
+            openURL(url)
         }
     }
 
@@ -274,6 +310,8 @@ struct CiRunPage: View {
     var onCancel: () -> Void = {}
     var onFix: () -> Void = {}
     var onOpenExternal: () -> Void = {}
+    /// #EXP-2214: a What happened row opens its pull request.
+    var onOpenPr: (String) -> Void = { _ in }
 
     var body: some View {
         let tree = CiRunView.ciRunTree(
@@ -298,6 +336,8 @@ struct CiRunPage: View {
                 case CiRunView.Events.cancel: onCancel()
                 case CiRunView.Events.fix: onFix()
                 case CiRunView.Events.openExternal: onOpenExternal()
+                case CiRunView.Events.openPr:
+                    if case let .string(pr)? = context?["pr"] { onOpenPr(pr) }
                 default: break
                 }
             }

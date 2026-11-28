@@ -256,7 +256,7 @@ public enum Prompts {
             texts: [
                 "title": "Merge PR #{number} now?",
                 "titleStack": "Merge the stack now?",
-                "body": "It skips the merge train's tests.",
+                "body": "It skips the merge queue's tests.",
             ],
             params: ["number"], answer: "merge", label: "Merge"
         )

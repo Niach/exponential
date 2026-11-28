@@ -12,8 +12,11 @@ struct CiRunSpecimens: View {
     /// #EXP-2172: the same run as a GitHub Actions run of acme/mobile whose
     /// installation accepted Actions: write (capture only).
     var github = false
+    /// #EXP-2214: a red merge queue run (its batch, What happened, Open log).
+    var queue = false
 
     private var model: CiRunView.Model {
+        if queue { return CiRunView.queueSpecimenModel }
         guard github else { return CiRunView.specimenModel }
         let r = CiRun.specimenRun
         let run = CiRun.Run(
@@ -31,9 +34,9 @@ struct CiRunSpecimens: View {
                 AppBackground()
                 CiRunPage(
                     model: model,
-                    selected: CiRun.specimenSelected,
-                    log: CiRun.specimenLog,
-                    now: WireTimestamps.parse(CiRun.specimenNow) ?? Date()
+                    selected: queue ? CiRunView.queueSpecimenSelected : CiRun.specimenSelected,
+                    log: queue ? CiRunView.queueSpecimenLog : CiRun.specimenLog,
+                    now: WireTimestamps.parse(queue ? CiRunView.queueSpecimenNow : CiRun.specimenNow) ?? Date()
                 )
             }
             .modifier(CiRunHeader(model: model))
@@ -42,11 +45,15 @@ struct CiRunSpecimens: View {
     }
 }
 
-/// #EXP-2172 (`sg_ci`): ci-page.json `scenario`, the Runs tab, as a phone
-/// draws it under the route's own pushed header (#EXP-2169: Devices' header);
-/// the tabs and filters work.
+/// #EXP-2172 (`sg_ci`): ci-page.json `scenario`, #EXP-2214 the Merge queue
+/// tab (or `tab`), as a phone draws it under the route's own pushed header
+/// (#EXP-2169: Devices' header); the tabs and filters work.
 struct CiPageSpecimens: View {
-    @State private var state = CiPageView.State(phone: true)
+    @State private var state: CiPageView.State
+
+    init(tab: CiPage.Tab = .train) {
+        _state = State(initialValue: CiPageView.State(tab: tab, phone: true))
+    }
 
     var body: some View {
         PushedSpecimen {
@@ -99,10 +106,12 @@ struct RunnerSettingsSpecimens: View {
     }
 }
 
-/// #EXP-2169 (`sg_repo-runs`, ci-page-view.json "phone, the repo page's
-/// Runs tab"): acme/engine's page on its Runs tab over ci-page.json
-/// `scenario`: the CI page's day Sections of that repository.
+/// #EXP-2169 (`sg_repo-runs`, ci-page-view.json "repo page: Merge queue of
+/// acme/engine, phone"): acme/engine's page on its Runs tab over ci-page.json
+/// `scenario`: #EXP-2214 the Merge queue · Pull requests · Releases switch.
 struct RepoRunsSpecimens: View {
+    @State private var tab: CiPage.Tab = .train
+
     var body: some View {
         PushedSpecimen {
             ZStack {
@@ -110,7 +119,7 @@ struct RepoRunsSpecimens: View {
                 VStack(spacing: 0) {
                     RepoTabStrip(tab: .runs)
                     ScrollView {
-                        RepoRunsView(input: CiPage.specimen, repositoryId: "repo-engine")
+                        RepoRunsView(input: CiPage.specimen, repositoryId: "repo-engine", tab: tab, onTab: { tab = $0 })
                             .padding(16)
                     }
                 }

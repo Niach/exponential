@@ -42,6 +42,8 @@ public struct CiRunEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     public let externalAccess: String?
     /// #EXP-2172 redesign: what the run is about (nil = unknown).
     public let title: String?
+    /// #EXP-2214: the merge queue run it tests (trigger merge_train).
+    public let mergeTrainId: String?
 
     public init(
         id: String, teamId: String, repositoryId: String = "", number: Int, name: String = "", sha: String = "",
@@ -49,10 +51,11 @@ public struct CiRunEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
         error: String? = nil, rerunOf: String? = nil, createdByUserId: String? = nil, startedAt: String? = nil,
         completedAt: String? = nil, createdAt: String, updatedAt: String, provider: String = "exponential",
         externalId: String? = nil, externalUrl: String? = nil, externalAttempt: Int? = nil, externalAccess: String? = nil,
-        title: String? = nil
+        title: String? = nil, mergeTrainId: String? = nil
     ) {
         self.id = id
         self.title = title
+        self.mergeTrainId = mergeTrainId
         self.teamId = teamId
         self.repositoryId = repositoryId
         self.number = number
@@ -79,6 +82,7 @@ public struct CiRunEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     enum CodingKeys: String, CodingKey {
         case id, number, name, sha, ref, trigger, state, error, provider, title
         case teamId = "team_id"
+        case mergeTrainId = "merge_train_id"
         case externalId = "external_id"
         case externalUrl = "external_url"
         case externalAttempt = "external_attempt"
@@ -129,6 +133,7 @@ extension CiRunEntity: Codable {
         externalAttempt = try? c.decodeWireInt(forKey: .externalAttempt)
         externalAccess = try c.decodeIfPresent(String.self, forKey: .externalAccess)
         title = try c.decodeIfPresent(String.self, forKey: .title)
+        mergeTrainId = try c.decodeIfPresent(String.self, forKey: .mergeTrainId)
     }
 }
 
@@ -279,15 +284,229 @@ extension CiJobEntity: Codable {
     }
 }
 
+// MARK: - MergeTrain / MergeTrainEvent (#EXP-2214)
+
+// The merge queue's synced rows (shapes `merge-trains` / `merge-train-events`,
+// member-only by team), mirroring `MERGE_TRAIN_COLUMNS` (heads, run_ref,
+// conflicts and error stay server-only) / `MERGE_TRAIN_EVENT_COLUMNS`. jsonb
+// columns are stored as their JSON text; every non-PK field decodes
+// permissively.
+
+public struct MergeTrainEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "merge_trains"
+
+    public let id: String
+    public let teamId: String
+    public let repositoryId: String
+    public let base: String
+    public let baseSha: String?
+    /// jsonb string[][] (PR ids per unit), as JSON text.
+    public let units: String?
+    /// dispatching | composing | testing | green | landed | failed | …
+    public let state: String
+    public let attempt: Int
+    public let bisectOf: String?
+    /// jsonb string[][][] (the bisect halves still to test), as JSON text.
+    public let pending: String?
+    public let untested: Bool
+    public let testedSha: String?
+    public let finishedAt: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String, teamId: String, repositoryId: String = "", base: String = "", baseSha: String? = nil,
+        units: String? = nil, state: String = "", attempt: Int = 0, bisectOf: String? = nil, pending: String? = nil,
+        untested: Bool = false, testedSha: String? = nil, finishedAt: String? = nil, createdAt: String = "",
+        updatedAt: String = ""
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.repositoryId = repositoryId
+        self.base = base
+        self.baseSha = baseSha
+        self.units = units
+        self.state = state
+        self.attempt = attempt
+        self.bisectOf = bisectOf
+        self.pending = pending
+        self.untested = untested
+        self.testedSha = testedSha
+        self.finishedAt = finishedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, base, units, state, attempt, pending, untested
+        case teamId = "team_id"
+        case repositoryId = "repository_id"
+        case baseSha = "base_sha"
+        case bisectOf = "bisect_of"
+        case testedSha = "tested_sha"
+        case finishedAt = "finished_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    /// The page's pure input; anything unreadable = none.
+    public var pageTrain: CiPage.Train {
+        func decode<T: Decodable>(_ text: String?, as _: T.Type) -> T? {
+            guard let data = text?.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode(T.self, from: data)
+        }
+        return CiPage.Train(
+            id: id, repositoryId: repositoryId, base: base, baseSha: baseSha,
+            units: decode(units, as: [[String]].self) ?? [], state: state, attempt: attempt, bisectOf: bisectOf,
+            pending: decode(pending, as: [[[String]]].self) ?? [], untested: untested, testedSha: testedSha,
+            createdAt: createdAt, finishedAt: finishedAt
+        )
+    }
+}
+
+extension MergeTrainEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId) ?? ""
+        base = try c.decodeIfPresent(String.self, forKey: .base) ?? ""
+        baseSha = try c.decodeIfPresent(String.self, forKey: .baseSha)
+        units = c.decodeWireJsonString(forKey: .units)
+        state = try c.decodeIfPresent(String.self, forKey: .state) ?? ""
+        attempt = (try? c.decodeWireInt(forKey: .attempt)) ?? 0
+        bisectOf = try c.decodeIfPresent(String.self, forKey: .bisectOf)
+        pending = c.decodeWireJsonString(forKey: .pending)
+        untested = c.decodeWireBool(forKey: .untested, default: false)
+        testedSha = try c.decodeIfPresent(String.self, forKey: .testedSha)
+        finishedAt = try c.decodeIfPresent(String.self, forKey: .finishedAt)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+    }
+}
+
+public struct MergeTrainEventEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "merge_train_events"
+
+    public let id: String
+    public let teamId: String
+    public let repositoryId: String
+    public let pullRequestId: String
+    public let mergeTrainId: String?
+    /// landed | failing | conflict | held | merge_now | resumed.
+    public let kind: String
+    public let base: String
+    public let attempt: Int
+    public let reason: String?
+    /// jsonb string[] (the red required checks), as JSON text.
+    public let checks: String?
+    public let ciJobId: String?
+    public let jobUrl: String?
+    /// jsonb string[] (the conflict files), as JSON text.
+    public let files: String?
+    public let sha: String?
+    public let byUserId: String?
+    public let createdAt: String
+
+    public init(
+        id: String, teamId: String, repositoryId: String = "", pullRequestId: String = "", mergeTrainId: String? = nil,
+        kind: String = "", base: String = "", attempt: Int = 0, reason: String? = nil, checks: String? = nil,
+        ciJobId: String? = nil, jobUrl: String? = nil, files: String? = nil, sha: String? = nil, byUserId: String? = nil,
+        createdAt: String = ""
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.repositoryId = repositoryId
+        self.pullRequestId = pullRequestId
+        self.mergeTrainId = mergeTrainId
+        self.kind = kind
+        self.base = base
+        self.attempt = attempt
+        self.reason = reason
+        self.checks = checks
+        self.ciJobId = ciJobId
+        self.jobUrl = jobUrl
+        self.files = files
+        self.sha = sha
+        self.byUserId = byUserId
+        self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, base, attempt, reason, checks, files, sha
+        case teamId = "team_id"
+        case repositoryId = "repository_id"
+        case pullRequestId = "pull_request_id"
+        case mergeTrainId = "merge_train_id"
+        case ciJobId = "ci_job_id"
+        case jobUrl = "job_url"
+        case byUserId = "by_user_id"
+        case createdAt = "created_at"
+    }
+
+    public var pageEvent: CiPage.TrainEvent {
+        func strings(_ text: String?) -> [String] {
+            guard let data = text?.data(using: .utf8) else { return [] }
+            return ((try? JSONSerialization.jsonObject(with: data)) as? [String]) ?? []
+        }
+        return CiPage.TrainEvent(
+            id: id, repositoryId: repositoryId, pullRequestId: pullRequestId, mergeTrainId: mergeTrainId, kind: kind,
+            base: base, attempt: attempt, reason: reason, checks: strings(checks), ciJobId: ciJobId, jobUrl: jobUrl,
+            files: strings(files), sha: sha, byUserId: byUserId, createdAt: createdAt
+        )
+    }
+}
+
+extension MergeTrainEventEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId) ?? ""
+        pullRequestId = try c.decodeIfPresent(String.self, forKey: .pullRequestId) ?? ""
+        mergeTrainId = try c.decodeIfPresent(String.self, forKey: .mergeTrainId)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        base = try c.decodeIfPresent(String.self, forKey: .base) ?? ""
+        attempt = (try? c.decodeWireInt(forKey: .attempt)) ?? 0
+        reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        checks = c.decodeWireJsonString(forKey: .checks)
+        ciJobId = try c.decodeIfPresent(String.self, forKey: .ciJobId)
+        jobUrl = try c.decodeIfPresent(String.self, forKey: .jobUrl)
+        files = c.decodeWireJsonString(forKey: .files)
+        sha = try c.decodeIfPresent(String.self, forKey: .sha)
+        byUserId = try c.decodeIfPresent(String.self, forKey: .byUserId)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+    }
+}
+
 // MARK: - The CI page's input (#EXP-2172, ci-page.json DATA)
+
+extension PullRequestEntity {
+    public var pagePr: CiPage.Pr {
+        CiPage.Pr(
+            id: id, number: number, title: title ?? "", repositoryId: repositoryId, rootSessionId: rootSessionId,
+            base: base, state: state, mergeState: mergeState.isEmpty ? nil : mergeState, mergeWait: mergeWait,
+            mergeHold: mergeHold, mergeNow: mergeNow, mergeAttempts: mergeAttempts, mergePosition: mergePosition,
+            mergeTrainId: mergeTrainId
+        )
+    }
+}
+
+extension RepositoryEntity {
+    /// #EXP-2214: a push to its default branch (the override, else GitHub's)
+    /// is a release run.
+    public var pageRepo: CiPage.Repo {
+        CiPage.Repo(id: id, fullName: fullName, defaultBranch: defaultBranchOverride ?? defaultBranch)
+    }
+}
 
 extension CiPage {
     /// The page's synced input, every member team at once: runs, jobs, pull
     /// requests, root sessions (their starters), the runs' authors (users),
-    /// the runner devices (runner enabled, never a member space). `repos`,
-    /// `now` and `utcOffsetMinutes` are the caller's
-    /// (repository names come from `repositories.list` per team until the
-    /// repositories shape syncs).
+    /// the runner devices (runner enabled, never a member space), the
+    /// repositories (#EXP-2214: names and default branches) and the merge
+    /// queue's trains and history. `now` and `utcOffsetMinutes` are the
+    /// caller's.
     public static func fetchRows(_ db: Database, viewerId: String) throws -> Input {
         let runs = try CiRunEntity.fetchAll(db)
         let jobs = try CiJobEntity.fetchAll(db)
@@ -295,19 +514,14 @@ extension CiPage {
         let roots = Set(prs.compactMap(\.rootSessionId))
         let sessions = roots.isEmpty ? [] : try SessionEntity.filter(keys: Array(roots)).fetchAll(db)
         let devices = try DeviceEntity.fetchAll(db)
-        let authors = Set(runs.compactMap(\.createdByUserId))
+        // The queue's members' starters are authors too (Testing now).
+        let authors = Set(runs.compactMap(\.createdByUserId) + sessions.map(\.userId))
         let users = authors.isEmpty ? [] : try UserEntity.filter(keys: Array(authors)).fetchAll(db)
         return Input(
             runs: runs.map(\.pageRun),
             jobs: jobs.map(\.pageJob),
-            repos: [],
-            pullRequests: prs.map { pr in
-                Pr(
-                    id: pr.id, number: pr.number, title: pr.title ?? "", repositoryId: pr.repositoryId,
-                    rootSessionId: pr.rootSessionId, base: pr.base, mergeState: pr.mergeState.isEmpty ? nil : pr.mergeState,
-                    mergePosition: pr.mergePosition, mergeTrainId: pr.mergeTrainId
-                )
-            },
+            repos: try RepositoryEntity.fetchAll(db).map(\.pageRepo),
+            pullRequests: prs.map(\.pagePr),
             sessions: sessions.filter { $0.rootId == $0.id }.map { Session(id: $0.id, userId: $0.userId) },
             runners: devices.compactMap { device in
                 let settings = RunnerSettings.Settings(json: device.runner)
@@ -318,6 +532,8 @@ extension CiPage {
                 )
             },
             users: users.map { User(id: $0.id, name: ($0.name ?? "").isEmpty ? $0.email : $0.name ?? "", image: $0.image) },
+            trains: try MergeTrainEntity.fetchAll(db).map(\.pageTrain),
+            trainEvents: try MergeTrainEventEntity.fetchAll(db).map(\.pageEvent),
             viewerId: viewerId,
             now: ""
         )
@@ -329,7 +545,7 @@ extension CiRunEntity {
         CiPage.Run(
             id: id, repositoryId: repositoryId, number: number, name: name, sha: sha, ref: ref, trigger: trigger,
             state: state, pullRequestId: pullRequestId, createdByUserId: createdByUserId, provider: provider,
-            startedAt: startedAt, completedAt: completedAt, createdAt: createdAt, title: title
+            startedAt: startedAt, completedAt: completedAt, createdAt: createdAt, title: title, mergeTrainId: mergeTrainId
         )
     }
 }
@@ -342,7 +558,10 @@ extension CiJobEntity {
     }
 
     public var pageJob: CiPage.Job {
-        CiPage.Job(runId: runId, status: status, conclusion: conclusion, runsOn: runsOnLabels, runnerDeviceId: runnerDeviceId, provider: provider)
+        CiPage.Job(
+            id: id, runId: runId, check: check, status: status, conclusion: conclusion, runsOn: runsOnLabels,
+            runnerDeviceId: runnerDeviceId, provider: provider
+        )
     }
 }
 

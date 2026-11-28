@@ -72,11 +72,9 @@ struct RepoPageView: View {
             case .pulls:
                 RepoPullsTab(prs: prs)
             case .runs:
-                // #EXP-2169: the CI page's runs of this repository; a row
-                // opens THE run page.
-                RepoRunsLive(repositoryId: repo.id, fullName: repo.fullName) { runId in
-                    pushRoute(.ciRun(accountId: accountId, runId: runId))
-                }
+                // #EXP-2214: the CI page's Merge queue, Pull requests and
+                // Releases of this repository; a row opens THE run page.
+                RepoRunsLive(repositoryId: repo.id)
             case .branches:
                 RepoBranchesTab(repo: repo, prs: prs)
             case .settings:

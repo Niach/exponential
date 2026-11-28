@@ -1,0 +1,101 @@
+import Foundation
+
+// GENERATED from packages/domain-contract/fixtures/ci-page.json `scenario`
+// (`CiPageTests.testSpecimenIsTheScenario` pins it): the page every
+// platform's shot renders.
+extension CiPage {
+    public static let specimen = Input(
+        runs: [
+            Run(id: "r483", repositoryId: "repo-engine", number: 483, name: "gate", sha: "82aa98f382aa98f382aa98f382aa98f382aa98f3", ref: "exp/APP-32", trigger: "pull_request", state: "pending", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:26:48.000Z", completedAt: nil, createdAt: "2026-11-27T10:26:48.000Z", title: "Repack once per push, not per ref", mergeTrainId: nil),
+            Run(id: "r91", repositoryId: "repo-engine", number: 91, name: "gate", sha: "3db841eb3db841eb3db841eb3db841eb3db841eb", ref: "main", trigger: "merge_train", state: "pending", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:28:20.000Z", completedAt: nil, createdAt: "2026-11-27T10:28:20.000Z", title: nil, mergeTrainId: "train-91"),
+            Run(id: "g1207", repositoryId: "repo-mobile", number: 1207, name: "build-ios", sha: "f78ec187f78ec187f78ec187f78ec187f78ec187", ref: "release/2.4", trigger: "tag", state: "pending", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: nil, completedAt: nil, createdAt: "2026-11-27T10:29:00.000Z", title: "Bump the widget to 2.4.1", mergeTrainId: nil),
+            Run(id: "r482", repositoryId: "repo-engine", number: 482, name: "gate", sha: "e4731f42e4731f42e4731f42e4731f42e4731f42", ref: "exp/APP-33", trigger: "pull_request", state: "failure", pullRequestId: "pr-213", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T09:59:20.000Z", completedAt: "2026-11-27T10:12:00.000Z", createdAt: "2026-11-27T09:59:20.000Z", title: "Mirror prunes deleted branches", mergeTrainId: nil),
+            Run(id: "g1206", repositoryId: "repo-mobile", number: 1206, name: "test", sha: "595747d6595747d6595747d6595747d6595747d6", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "github", startedAt: "2026-11-27T09:22:54.000Z", completedAt: "2026-11-27T09:30:00.000Z", createdAt: "2026-11-27T09:22:54.000Z", title: "Offline queue survives a cold start", mergeTrainId: nil),
+            Run(id: "g57", repositoryId: "repo-site", number: 57, name: "deploy", sha: "3a5a18693a5a18693a5a18693a5a18693a5a1869", ref: "main", trigger: "push", state: "failure", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-26T08:27:57.000Z", completedAt: "2026-11-26T08:30:00.000Z", createdAt: "2026-11-26T08:27:57.000Z", title: "Pricing page copy", mergeTrainId: nil),
+            Run(id: "g58", repositoryId: "repo-site", number: 58, name: "deploy", sha: "d891921ad891921ad891921ad891921ad891921a", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-27T08:27:57.000Z", completedAt: "2026-11-27T08:30:00.000Z", createdAt: "2026-11-27T08:27:57.000Z", title: "Pricing page copy, take two", mergeTrainId: nil),
+            Run(id: "r481", repositoryId: "repo-engine", number: 481, name: "gate", sha: "463ba591463ba591463ba591463ba591463ba591", ref: "exp/APP-32", trigger: "pull_request", state: "failure", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T07:30:00.000Z", completedAt: "2026-11-27T07:30:24.000Z", createdAt: "2026-11-27T07:30:00.000Z", title: "Repack once per push, not per ref", mergeTrainId: nil),
+            Run(id: "r480", repositoryId: "repo-gone", number: 480, name: "nightly", sha: "a8042be0a8042be0a8042be0a8042be0a8042be0", ref: nil, trigger: "schedule", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T01:30:00.000Z", completedAt: "2026-11-27T01:44:12.000Z", createdAt: "2026-11-27T01:30:00.000Z", title: nil, mergeTrainId: nil),
+            Run(id: "r87", repositoryId: "repo-engine", number: 87, name: "gate", sha: "000005700000570000057000005700000570000057", ref: "exp-train/train-87", trigger: "merge_train", state: "failure", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T08:50:00.000Z", completedAt: "2026-11-27T08:58:00.000Z", createdAt: "2026-11-27T08:50:00.000Z", title: nil, mergeTrainId: "train-87"),
+            Run(id: "r88", repositoryId: "repo-engine", number: 88, name: "gate", sha: "000005800000580000058000005800000580000058", ref: "exp-train/train-88", trigger: "merge_train", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-26T15:00:00.000Z", completedAt: "2026-11-26T15:06:00.000Z", createdAt: "2026-11-26T15:00:00.000Z", title: nil, mergeTrainId: "train-88"),
+            Run(id: "r89", repositoryId: "repo-engine", number: 89, name: "gate", sha: "000005900000590000059000005900000590000059", ref: "exp-train/train-89", trigger: "merge_train", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-26T16:00:00.000Z", completedAt: "2026-11-26T16:07:00.000Z", createdAt: "2026-11-26T16:00:00.000Z", title: nil, mergeTrainId: "train-89"),
+            Run(id: "r90", repositoryId: "repo-engine", number: 90, name: "gate", sha: "000005a000005a000005a000005a000005a000005a", ref: "exp-train/train-90", trigger: "merge_train", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T09:30:00.000Z", completedAt: "2026-11-27T09:38:00.000Z", createdAt: "2026-11-27T09:30:00.000Z", title: nil, mergeTrainId: "train-90"),
+            Run(id: "r479", repositoryId: "repo-engine", number: 479, name: "gate", sha: "5b1e0c3a5b1e0c3a5b1e0c3a5b1e0c3a5b1e0c3a", ref: "exp/spike", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: "u-me", provider: "exponential", startedAt: "2026-11-27T06:10:00.000Z", completedAt: "2026-11-27T06:14:30.000Z", createdAt: "2026-11-27T06:10:00.000Z", title: "Try a faster planner", mergeTrainId: nil),
+        ],
+        jobs: [
+            Job(id: "r483-j1", runId: "r483", check: "gate", status: "in_progress", conclusion: nil, runsOn: ["linux"], runnerDeviceId: "dev-mint", provider: "exponential"),
+            Job(id: "r483-j2", runId: "r483", check: "unit (1/2)", status: "queued", conclusion: nil, runsOn: ["linux"], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "r483-j3", runId: "r483", check: "unit (2/2)", status: "queued", conclusion: nil, runsOn: ["mac"], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "r91-j1", runId: "r91", check: "gate", status: "in_progress", conclusion: nil, runsOn: ["linux"], runnerDeviceId: "dev-mint", provider: "exponential"),
+            Job(id: "g1207-j1", runId: "g1207", check: "gate", status: "queued", conclusion: nil, runsOn: ["macos-latest"], runnerDeviceId: nil, provider: "github"),
+            Job(id: "r482-j1", runId: "r482", check: "gate", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "r482-j2", runId: "r482", check: "unit (1/2)", status: "completed", conclusion: "failure", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "g1206-j1", runId: "g1206", check: "gate", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "github"),
+            Job(id: "g57-j1", runId: "g57", check: "gate", status: "completed", conclusion: "failure", runsOn: [], runnerDeviceId: nil, provider: "github"),
+            Job(id: "g58-j1", runId: "g58", check: "gate", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "github"),
+            Job(id: "r481-j1", runId: "r481", check: "gate", status: "completed", conclusion: "cancelled", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "r480-j1", runId: "r480", check: "gate", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "j87-a", runId: "r87", check: "typecheck", status: "completed", conclusion: "success", runsOn: ["linux"], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "j87-b", runId: "r87", check: "test (linux)", status: "completed", conclusion: "failure", runsOn: ["linux"], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "j88", runId: "r88", check: "gate", status: "completed", conclusion: "success", runsOn: ["linux"], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "j89", runId: "r89", check: "gate", status: "completed", conclusion: "success", runsOn: ["linux"], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "j90", runId: "r90", check: "gate", status: "completed", conclusion: "success", runsOn: ["linux"], runnerDeviceId: nil, provider: "exponential"),
+            Job(id: "r479-j1", runId: "r479", check: "gate", status: "completed", conclusion: "success", runsOn: ["linux"], runnerDeviceId: nil, provider: "exponential"),
+        ],
+        repos: [
+            Repo(id: "repo-engine", fullName: "acme/engine", defaultBranch: "main"),
+            Repo(id: "repo-mobile", fullName: "acme/mobile", defaultBranch: "main"),
+            Repo(id: "repo-site", fullName: "acme/site", defaultBranch: "main"),
+        ],
+        pullRequests: [
+            Pr(id: "pr-211", number: 211, title: "Fix bisect on a red batch", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", state: "open", mergeState: "testing", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: nil, mergeTrainId: "train-91"),
+            Pr(id: "pr-212", number: 212, title: "Runner labels", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", state: "open", mergeState: "testing", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: nil, mergeTrainId: "train-91"),
+            Pr(id: "pr-213", number: 213, title: "Log tail", repositoryId: "repo-engine", rootSessionId: "s-mine", base: "main", state: "open", mergeState: "testing", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: nil, mergeTrainId: "train-91"),
+            Pr(id: "pr-214", number: 214, title: "Reduce cold start below 400 ms", repositoryId: "repo-engine", rootSessionId: "s-mine", base: "main", state: "open", mergeState: "checks", mergeWait: "checks", mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-215", number: 215, title: "Cache the planner", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", state: "open", mergeState: "queued", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: 2, mergeTrainId: nil),
+            Pr(id: "pr-218", number: 218, title: "Hotfix: token refresh loop", repositoryId: "repo-engine", rootSessionId: "s-mine", base: "main", state: "open", mergeState: "queued", mergeWait: nil, mergeHold: nil, mergeNow: true, mergeAttempts: 0, mergePosition: 1, mergeTrainId: nil),
+            Pr(id: "pr-216", number: 216, title: "Calendar week strip", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", state: "open", mergeState: "checks", mergeWait: "approval", mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-210", number: 210, title: "Session tree visibility rule", repositoryId: "repo-engine", rootSessionId: "s-mine", base: "main", state: "open", mergeState: "failing", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 2, mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-207", number: 207, title: "Changelog for 0.14.150", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", state: "open", mergeState: "conflict", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 1, mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-209", number: 209, title: "Mirror prunes deleted branches", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", state: "merged", mergeState: "merged", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-208", number: 208, title: "Repo picker shows the default", repositoryId: "repo-engine", rootSessionId: "s-mine", base: "main", state: "merged", mergeState: "merged", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-206", number: 206, title: "Hotfix: digest crash", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", state: "merged", mergeState: "merged", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-40", number: 40, title: "Dark splash", repositoryId: "repo-mobile", rootSessionId: nil, base: "main", state: "open", mergeState: "held", mergeWait: nil, mergeHold: "bounces", mergeNow: false, mergeAttempts: 3, mergePosition: nil, mergeTrainId: nil),
+            Pr(id: "pr-41", number: 41, title: "Old", repositoryId: "repo-mobile", rootSessionId: nil, base: "main", state: "merged", mergeState: "merged", mergeWait: nil, mergeHold: nil, mergeNow: false, mergeAttempts: 0, mergePosition: nil, mergeTrainId: nil),
+        ],
+        sessions: [
+            Session(id: "s-mine", userId: "u-me"),
+            Session(id: "s-other", userId: "u-other"),
+        ],
+        runners: [
+            Runner(id: "dev-mint", label: "mint", platform: "linux", labels: ["GPU"], slots: 2, lastSeenAt: "2026-11-27T10:29:40.000Z"),
+            Runner(id: "dev-mac", label: "Alex's MacBook Pro", platform: "macos", labels: [], slots: 1, lastSeenAt: "2026-11-27T10:29:55.000Z"),
+            Runner(id: "dev-old", label: "build-box", platform: nil, labels: [], slots: 4, lastSeenAt: "2026-11-26T22:00:00.000Z"),
+        ],
+        users: [
+            User(id: "u-me", name: "Mara Lind", image: nil),
+            User(id: "u-other", name: "Jonas Berg", image: nil),
+        ],
+        trains: [
+            Train(id: "train-91", repositoryId: "repo-engine", base: "main", baseSha: "3db841eb3db841eb3db841eb3db841eb3db841eb", units: [["pr-211"], ["pr-212"], ["pr-213"]], state: "testing", attempt: 0, bisectOf: nil, pending: [], untested: false, testedSha: nil, createdAt: "2026-11-27T10:28:00.000Z", finishedAt: nil),
+            Train(id: "train-90", repositoryId: "repo-engine", base: "main", baseSha: "1111111111111111111111111111111111111111", units: [["pr-208"], ["pr-209"]], state: "landed", attempt: 0, bisectOf: nil, pending: [], untested: false, testedSha: nil, createdAt: "2026-11-27T09:29:00.000Z", finishedAt: "2026-11-27T09:39:00.000Z"),
+            Train(id: "train-89", repositoryId: "repo-engine", base: "main", baseSha: nil, units: [["pr-41"]], state: "landed", attempt: 0, bisectOf: nil, pending: [], untested: false, testedSha: nil, createdAt: "2026-11-26T15:59:00.000Z", finishedAt: "2026-11-26T16:08:00.000Z"),
+            Train(id: "train-88", repositoryId: "repo-engine", base: "main", baseSha: nil, units: [["pr-41"]], state: "landed", attempt: 0, bisectOf: nil, pending: [], untested: false, testedSha: nil, createdAt: "2026-11-26T14:59:00.000Z", finishedAt: "2026-11-26T15:07:00.000Z"),
+            Train(id: "train-87", repositoryId: "repo-engine", base: "main", baseSha: nil, units: [["pr-210"]], state: "red", attempt: 1, bisectOf: nil, pending: [], untested: false, testedSha: nil, createdAt: "2026-11-27T08:49:00.000Z", finishedAt: "2026-11-27T08:59:00.000Z"),
+            Train(id: "train-86", repositoryId: "repo-engine", base: "main", baseSha: nil, units: [["pr-206"]], state: "landed", attempt: 0, bisectOf: nil, pending: [], untested: true, testedSha: nil, createdAt: "2026-11-26T18:00:00.000Z", finishedAt: "2026-11-26T18:01:00.000Z"),
+        ],
+        trainEvents: [
+            TrainEvent(id: "e1", repositoryId: "repo-engine", pullRequestId: "pr-209", mergeTrainId: "train-90", kind: "landed", base: "main", attempt: 0, reason: nil, checks: [], ciJobId: nil, jobUrl: nil, files: [], sha: "4f1a2b3c4f1a2b3c4f1a2b3c4f1a2b3c4f1a2b3c", byUserId: nil, createdAt: "2026-11-27T09:39:00.000Z"),
+            TrainEvent(id: "e2", repositoryId: "repo-engine", pullRequestId: "pr-208", mergeTrainId: "train-90", kind: "landed", base: "main", attempt: 0, reason: nil, checks: [], ciJobId: nil, jobUrl: nil, files: [], sha: "4f1a2b3c4f1a2b3c4f1a2b3c4f1a2b3c4f1a2b3c", byUserId: nil, createdAt: "2026-11-27T09:39:00.000Z"),
+            TrainEvent(id: "e3", repositoryId: "repo-engine", pullRequestId: "pr-210", mergeTrainId: "train-87", kind: "failing", base: "main", attempt: 2, reason: nil, checks: ["test (linux)"], ciJobId: "j87-b", jobUrl: nil, files: [], sha: nil, byUserId: nil, createdAt: "2026-11-27T08:59:00.000Z"),
+            TrainEvent(id: "e4", repositoryId: "repo-engine", pullRequestId: "pr-207", mergeTrainId: nil, kind: "conflict", base: "main", attempt: 1, reason: nil, checks: [], ciJobId: nil, jobUrl: nil, files: ["apps/web/src/lib/changelog.ts", "crates/ui/src/changelog.rs", "shots/index.json"], sha: nil, byUserId: nil, createdAt: "2026-11-27T07:10:00.000Z"),
+            TrainEvent(id: "e5", repositoryId: "repo-engine", pullRequestId: "pr-206", mergeTrainId: "train-86", kind: "landed", base: "main", attempt: 0, reason: nil, checks: [], ciJobId: nil, jobUrl: nil, files: [], sha: "9c0d1e2f9c0d1e2f9c0d1e2f9c0d1e2f9c0d1e2f", byUserId: nil, createdAt: "2026-11-26T18:01:00.000Z"),
+            TrainEvent(id: "e6", repositoryId: "repo-engine", pullRequestId: "pr-218", mergeTrainId: nil, kind: "merge_now", base: "main", attempt: 0, reason: nil, checks: [], ciJobId: nil, jobUrl: nil, files: [], sha: nil, byUserId: "u-me", createdAt: "2026-11-27T10:20:00.000Z"),
+            TrainEvent(id: "e7", repositoryId: "repo-mobile", pullRequestId: "pr-40", mergeTrainId: nil, kind: "held", base: "main", attempt: 3, reason: "bounces", checks: [], ciJobId: nil, jobUrl: nil, files: [], sha: nil, byUserId: nil, createdAt: "2026-11-26T20:00:00.000Z"),
+            TrainEvent(id: "e8", repositoryId: "repo-mobile", pullRequestId: "pr-40", mergeTrainId: nil, kind: "failing", base: "main", attempt: 3, reason: nil, checks: ["build", "ui tests", "lint"], ciJobId: nil, jobUrl: "https://github.com/acme/mobile/actions/runs/9/job/1", files: [], sha: nil, byUserId: nil, createdAt: "2026-11-26T19:50:00.000Z"),
+            TrainEvent(id: "e9", repositoryId: "repo-mobile", pullRequestId: "pr-41", mergeTrainId: "train-88", kind: "landed", base: "main", attempt: 0, reason: nil, checks: [], ciJobId: nil, jobUrl: nil, files: [], sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", byUserId: nil, createdAt: "2026-11-24T15:07:00.000Z"),
+        ],
+        viewerId: "u-me",
+        now: "2026-11-27T10:30:00.000Z",
+        utcOffsetMinutes: 60
+    )
+}

@@ -25,7 +25,7 @@ public enum RepoCi {
             "push": "Push",
             "pull_request": "Pull request",
             "tag": "Tag",
-            "merge_train": "Merge train",
+            "merge_train": "Merge queue",
             "manual": "Manual",
         ]
 
@@ -33,7 +33,7 @@ public enum RepoCi {
             public static let section = "CI"
             public static let noPipeline = "No runs yet. Add .exponential/ci.json to run CI here."
             public static let requiredLabel = "Required checks"
-            public static let requiredDescription = "Checks that must pass before the merge train lands a pull request."
+            public static let requiredDescription = "Checks that must pass before the merge queue lands a pull request."
             public static let requiredPlaceholder = "Check name"
         }
 

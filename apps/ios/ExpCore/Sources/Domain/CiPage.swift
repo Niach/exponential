@@ -3,14 +3,24 @@ import Foundation
 /// #EXP-2172 (packages/domain-contract fixtures/ci-page.json is the spec; TS
 /// reference `src/ci-page.ts`, desktop `domain::ci_page`, Android `CiPage`):
 /// THE CI page (one root destination across every member team) and its
-/// badge: our runs and GitHub Actions runs in one list, the merge train's
-/// current batches, the runner slots. Pure, replayed by `CiPageTests`.
+/// badge. #EXP-2214 (Danny 2026-11-28, "the ci page makes no sense"): four
+/// tabs, one meaning each: the MERGE QUEUE (what is being tested, what is
+/// next, what was sent back, what landed; `CiPageQueue.swift`), PULL REQUESTS
+/// (one row per PR, its runs folded under it), RELEASES (tags, manual,
+/// scheduled and default-branch runs) and RUNNERS. Pure, replayed by
+/// `CiPageTests`.
 public enum CiPage {
     // MARK: - Copy, limits, test ids (fixture `copy` / `limits` / `testIds`)
 
     public enum Copy {
         public static let title = "CI"
-        public static let tabs: [String: String] = ["runs": "Runs", "train": "Merge train", "runners": "Runners"]
+        public static let tabs: [String: String] = [
+            "train": "Merge queue", "prs": "Pull requests", "releases": "Releases", "runners": "Runners",
+        ]
+        /// Phones' tab labels.
+        public static let phoneTabs: [String: String] = [
+            "train": "Queue", "prs": "PRs", "releases": "Releases", "runners": "Runners",
+        ]
         public static let filters: [String: String] = ["all": "All runs", "running": "Running", "failed": "Failed", "mine": "Mine"]
         public static let filterLabels: [String: String] = ["status": "Status", "repository": "Repository", "source": "Source"]
         public static let allRepositories = "All repositories"
@@ -19,11 +29,10 @@ public enum CiPage {
             "status": "Status", "run": "Run", "repository": "Repository", "source": "Source",
             "ref": "Branch", "trigger": "Trigger", "duration": "Duration", "started": "Started",
         ]
-        public static let trainSection = "Merge train"
         public static let pullRequest = "Pull request #{number}"
         public static let triggers: [String: String] = [
             "push": "Push", "pull_request": "Pull request", "tag": "Tag",
-            "merge_train": "Merge train", "manual": "Manual", "schedule": "Schedule",
+            "merge_train": "Merge queue", "manual": "Manual", "schedule": "Schedule",
         ]
         public static let unknownRepository = "Repository"
         public static let inProgress = "In progress"
@@ -32,9 +41,65 @@ public enum CiPage {
         public static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         public static let queued = "queued"
         public static let batchTitle = "Testing {numbers} together"
+        /// A merge queue run of one PR.
+        public static let batchOne = "Testing {number}"
         public static let runnerChip = "{online} of {total} runners"
         public static let waitingForRunner = "waiting for a runner"
-        public static let trainBatch = "Testing {count} pull requests together"
+        /// What a run is for (`runKind`): the run page's kind Badge.
+        public static let kinds: [String: String] = [
+            "train": "Merge queue", "pull_request": "Pull request", "release": "Release", "branch": "Branch",
+        ]
+        public enum Prs {
+            public static let open = "Open"
+            public static let branches = "Branches"
+            public static let closed = "Merged or closed"
+        }
+        public enum Queue {
+            public static let testing = "Testing now"
+            public static let base = "{base} @ {sha}"
+            public static let rerun = "re-run"
+            public static let split = "split: {count} more to test"
+            public static let untested = "Merge now, untested"
+            public static let runningFor = "Running for {duration}"
+            public static let left = "about {n} min left"
+            public static let almostDone = "almost done"
+            public static let batch = "In this batch"
+            public static let openRun = "Open run"
+            public static let upNext = "Up next"
+            public static let position = "{ordinal} in line"
+            public static let mergeNow = "Merge now · skips CI, lands next"
+            public static let notReady = "Not ready yet"
+            public static let sentBack = "Sent back"
+            public static let failedIn = "Failed in {checks}"
+            public static let conflictIn = "Conflict in {files}"
+            public static let tries = "{n} of {max} tries"
+            public static let landed = "Landed"
+            public static let landedWith = "with {numbers}"
+            public static let mergedNow = "Merge now · untested"
+            public static let openLog = "Open log"
+            public static let resume = "Resume"
+            public static let more = "More"
+            public static let menu: [String: String] = ["mergeNow": "Merge now", "hold": "Hold"]
+            public static let into = "into {base}"
+            public static let stats: [String: String] = [
+                "inQueue": "In the queue", "landedToday": "Landed today",
+                "sentBackToday": "Sent back today", "typicalRun": "Typical run",
+            ]
+            public static let waits: [String: String] = [
+                "checks": "Checks running", "session": "Session working", "approval": "Needs approval",
+                "stack": "Waiting for its base", "draft": "Draft", "failing": "Checks failing", "conflict": "Conflict",
+            ]
+            public static let holds: [String: String] = [
+                "person": "On hold", "bounces": "On hold after 3 tries", "timeout": "On hold after 24 hours",
+                "no_checks": "On hold: no checks", "conflict": "On hold: conflict",
+            ]
+            public static let whatHappened = "What happened"
+            public static let outcome: [String: String] = [
+                "landed": "Landed as {sha}", "untested": "Merge now, landed untested",
+                "failing": "Sent back: failed in {checks} · {tries}", "conflict": "Sent back: conflict in {files} · {tries}",
+                "testing": "Being tested", "requeued": "Back in the queue",
+            ]
+        }
         public enum Runners {
             public static let busy = "{busy} of {slots} busy"
             public static let queue = "{count} queued"
@@ -44,7 +109,9 @@ public enum CiPage {
         public enum Empty {
             public static let runs = "No runs yet"
             public static let filtered = "No runs match"
-            public static let train = "Nothing in the merge train"
+            public static let train = "Nothing in the merge queue"
+            public static let prs = "No pull request runs yet"
+            public static let releases = "No release runs yet"
             public static let runners = "No runners"
         }
     }
@@ -53,11 +120,19 @@ public enum CiPage {
         public static let runs = 100
         /// A runner is online while its last beat is younger than this.
         public static let runnerOnlineMs: Double = 120_000
+        /// Per Pull requests section.
+        public static let subjects = 50
+        /// The runs folded under one PR.
+        public static let subjectRuns = 10
+        /// Sent back / Landed rows per repository.
+        public static let history = 10
+        public static let historyHours: Double = 48
+        /// Finished green merge queue runs before a typical run exists.
+        public static let etaSamples = 3
     }
 
     public enum TestIds {
         public static let page = "ci-page"
-        public static let tiles = "ci-tiles"
         public static let tabs = "ci-tabs"
         public static let filters = "ci-filters"
         public static let statusFilter = "ci-filter-status"
@@ -65,18 +140,27 @@ public enum CiPage {
         public static let sourceFilter = "ci-filter-source"
         public static let runs = "ci-runs"
         public static let runRow = "ci-run-row"
-        public static let train = "ci-train"
-        public static let trainRow = "ci-train-row"
         public static let runners = "ci-runners"
         public static let runnerRow = "ci-runner-row"
         public static let runnerChip = "ci-runner-chip"
+        public static let queue = "ci-queue"
+        public static let queueRepo = "ci-queue-repo"
+        public static let queueStats = "ci-queue-stats"
+        public static let queueNow = "ci-queue-now"
+        public static let queueRow = "ci-queue-row"
+        public static let prs = "ci-prs"
+        public static let prRow = "ci-pr-row"
+        public static let releases = "ci-releases"
     }
 
     // MARK: - Inputs
 
     public enum Source: String, Sendable, Equatable { case exponential, github }
     public enum Filter: String, Sendable, Equatable, CaseIterable { case all, running, failed, mine }
-    public enum Tab: String, Sendable, Equatable, CaseIterable { case runs, train, runners }
+    /// The tab order (the merge queue opens first).
+    public enum Tab: String, Sendable, Equatable, CaseIterable { case train, prs, releases, runners }
+    /// #EXP-2214: what a run is for (`runKind`).
+    public enum RunKind: String, Sendable, Equatable { case train, pullRequest = "pull_request", release, branch }
 
     public struct Run: Equatable, Sendable {
         public let id: String
@@ -95,11 +179,13 @@ public enum CiPage {
         public let createdAt: String
         /// What the run is about (`ci_runs.title`).
         public let title: String?
+        /// #EXP-2214: the merge queue run it tests (`ci_runs.merge_train_id`).
+        public let mergeTrainId: String?
 
         public init(
             id: String, repositoryId: String, number: Int, name: String, sha: String = "", ref: String?,
             trigger: String, state: String, pullRequestId: String?, createdByUserId: String?, provider: String,
-            startedAt: String?, completedAt: String?, createdAt: String, title: String? = nil
+            startedAt: String?, completedAt: String?, createdAt: String, title: String? = nil, mergeTrainId: String? = nil
         ) {
             self.title = title
             self.id = id
@@ -116,19 +202,28 @@ public enum CiPage {
             self.startedAt = startedAt
             self.completedAt = completedAt
             self.createdAt = createdAt
+            self.mergeTrainId = mergeTrainId
         }
     }
 
     public struct Job: Equatable, Sendable {
+        /// #EXP-2214: the Sent back row's Open log names a job.
+        public let id: String
         public let runId: String
+        public let check: String
         public let status: String
         public let conclusion: String?
         public let runsOn: [String]
         public let runnerDeviceId: String?
         public let provider: String
 
-        public init(runId: String, status: String, conclusion: String?, runsOn: [String], runnerDeviceId: String?, provider: String) {
+        public init(
+            id: String = "", runId: String, check: String = "", status: String, conclusion: String?, runsOn: [String],
+            runnerDeviceId: String?, provider: String
+        ) {
+            self.id = id
             self.runId = runId
+            self.check = check
             self.status = status
             self.conclusion = conclusion
             self.runsOn = runsOn
@@ -140,10 +235,13 @@ public enum CiPage {
     public struct Repo: Equatable, Sendable {
         public let id: String
         public let fullName: String
+        /// #EXP-2214: a push to it is a release run (nil = `main`).
+        public let defaultBranch: String?
 
-        public init(id: String, fullName: String) {
+        public init(id: String, fullName: String, defaultBranch: String? = nil) {
             self.id = id
             self.fullName = fullName
+            self.defaultBranch = defaultBranch
         }
     }
 
@@ -154,13 +252,22 @@ public enum CiPage {
         public let repositoryId: String
         public let rootSessionId: String?
         public let base: String
+        /// #EXP-2214: open | draft | merged | closed.
+        public let state: String
         public let mergeState: String?
+        /// What a `checks` PR waits for (merge-train.json `mergeWait`).
+        public let mergeWait: String?
+        /// person | bounces | timeout | no_checks | conflict.
+        public let mergeHold: String?
+        public let mergeNow: Bool
+        public let mergeAttempts: Int
         public let mergePosition: Int?
         public let mergeTrainId: String?
 
         public init(
             id: String, number: Int, title: String, repositoryId: String, rootSessionId: String?, base: String,
-            mergeState: String?, mergePosition: Int?, mergeTrainId: String?
+            state: String = "open", mergeState: String?, mergeWait: String? = nil, mergeHold: String? = nil,
+            mergeNow: Bool = false, mergeAttempts: Int = 0, mergePosition: Int?, mergeTrainId: String?
         ) {
             self.id = id
             self.number = number
@@ -168,9 +275,95 @@ public enum CiPage {
             self.repositoryId = repositoryId
             self.rootSessionId = rootSessionId
             self.base = base
+            self.state = state
             self.mergeState = mergeState
+            self.mergeWait = mergeWait
+            self.mergeHold = mergeHold
+            self.mergeNow = mergeNow
+            self.mergeAttempts = mergeAttempts
             self.mergePosition = mergePosition
             self.mergeTrainId = mergeTrainId
+        }
+    }
+
+    /// #EXP-2214: one merge queue run (`merge_trains`, the synced columns).
+    public struct Train: Equatable, Sendable {
+        public let id: String
+        public let repositoryId: String
+        public let base: String
+        public let baseSha: String?
+        /// PR ids per unit (a stack bottom first).
+        public let units: [[String]]
+        public let state: String
+        public let attempt: Int
+        public let bisectOf: String?
+        /// The bisect halves still to test after it.
+        public let pending: [[[String]]]
+        public let untested: Bool
+        public let testedSha: String?
+        public let createdAt: String
+        public let finishedAt: String?
+
+        public init(
+            id: String, repositoryId: String, base: String, baseSha: String?, units: [[String]], state: String,
+            attempt: Int = 0, bisectOf: String? = nil, pending: [[[String]]] = [], untested: Bool = false,
+            testedSha: String? = nil, createdAt: String, finishedAt: String? = nil
+        ) {
+            self.id = id
+            self.repositoryId = repositoryId
+            self.base = base
+            self.baseSha = baseSha
+            self.units = units
+            self.state = state
+            self.attempt = attempt
+            self.bisectOf = bisectOf
+            self.pending = pending
+            self.untested = untested
+            self.testedSha = testedSha
+            self.createdAt = createdAt
+            self.finishedAt = finishedAt
+        }
+    }
+
+    /// #EXP-2214: one row of the queue's history (`merge_train_events`).
+    public struct TrainEvent: Equatable, Sendable {
+        public let id: String
+        public let repositoryId: String
+        public let pullRequestId: String
+        public let mergeTrainId: String?
+        /// landed | failing | conflict | held | merge_now | resumed.
+        public let kind: String
+        public let base: String
+        public let attempt: Int
+        public let reason: String?
+        public let checks: [String]
+        public let ciJobId: String?
+        public let jobUrl: String?
+        public let files: [String]
+        public let sha: String?
+        public let byUserId: String?
+        public let createdAt: String
+
+        public init(
+            id: String, repositoryId: String, pullRequestId: String, mergeTrainId: String?, kind: String, base: String,
+            attempt: Int = 0, reason: String? = nil, checks: [String] = [], ciJobId: String? = nil, jobUrl: String? = nil,
+            files: [String] = [], sha: String? = nil, byUserId: String? = nil, createdAt: String
+        ) {
+            self.id = id
+            self.repositoryId = repositoryId
+            self.pullRequestId = pullRequestId
+            self.mergeTrainId = mergeTrainId
+            self.kind = kind
+            self.base = base
+            self.attempt = attempt
+            self.reason = reason
+            self.checks = checks
+            self.ciJobId = ciJobId
+            self.jobUrl = jobUrl
+            self.files = files
+            self.sha = sha
+            self.byUserId = byUserId
+            self.createdAt = createdAt
         }
     }
 
@@ -224,6 +417,9 @@ public enum CiPage {
         public var sessions: [Session]
         public var runners: [Runner]
         public var users: [User]
+        /// #EXP-2214: the merge queue's runs and history.
+        public var trains: [Train]
+        public var trainEvents: [TrainEvent]
         public var viewerId: String
         public var now: String
         /// The viewer's clock offset from UTC in minutes (Today / Yesterday).
@@ -231,7 +427,8 @@ public enum CiPage {
 
         public init(
             runs: [Run], jobs: [Job], repos: [Repo], pullRequests: [Pr], sessions: [Session], runners: [Runner],
-            users: [User] = [], viewerId: String, now: String, utcOffsetMinutes: Int = 0
+            users: [User] = [], trains: [Train] = [], trainEvents: [TrainEvent] = [], viewerId: String, now: String,
+            utcOffsetMinutes: Int = 0
         ) {
             self.runs = runs
             self.jobs = jobs
@@ -240,6 +437,8 @@ public enum CiPage {
             self.sessions = sessions
             self.runners = runners
             self.users = users
+            self.trains = trains
+            self.trainEvents = trainEvents
             self.viewerId = viewerId
             self.now = now
             self.utcOffsetMinutes = utcOffsetMinutes
@@ -269,8 +468,8 @@ public enum CiPage {
         public let glyph: PrChecks.Glyph
         /// The catalog tone (`statusTones`).
         public let tone: String
-        /// The commit / PR line (`title`), else the merge train batch, else
-        /// the pipeline's name.
+        /// A tag run's tag, else the commit / PR line (`title`), else the
+        /// merge queue batch, else the pipeline's name.
         public let title: String
         /// `name #n`.
         public let workflow: String
@@ -317,24 +516,6 @@ public enum CiPage {
         public let value: String
     }
 
-    public struct TrainRow: Equatable, Sendable {
-        public let id: String
-        public let identifier: String
-        public let title: String
-        public let subtitle: String?
-        public let glyph: PrChecks.Glyph
-        public let badge: String
-        /// The PR a press opens (a batch: its first member).
-        public let pullRequestId: String
-    }
-
-    public struct TrainGroup: Equatable, Sendable {
-        public let repositoryId: String
-        public let title: String
-        public let caption: String
-        public let rows: [TrainRow]
-    }
-
     public struct RunnerRow: Equatable, Sendable {
         public let id: String
         public let title: String
@@ -356,7 +537,21 @@ public enum CiPage {
         a.utf16.lexicographicallyPrecedes(b.utf16)
     }
 
-    private static func msOf(_ value: String?) -> Double? { CiRun.ms(value) }
+    /// JS's stable `sort` with a three-way comparator (< 0 = a first).
+    static func stableSorted<T>(_ items: [T], _ compare: (T, T) -> Int) -> [T] {
+        items.enumerated().sorted { a, b in
+            let c = compare(a.element, b.element)
+            return c != 0 ? c < 0 : a.offset < b.offset
+        }.map(\.element)
+    }
+
+    static func msOf(_ value: String?) -> Double? { CiRun.ms(value) }
+
+    /// JS truthiness of an optional string (nil and `""` are falsy).
+    static func present(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
+    }
 
     /// The one status table (fixture `statusTones`, also the run page's):
     /// running is the only blue, moving mark; queued and cancelled stay
@@ -381,14 +576,14 @@ public enum CiPage {
     }
 
     /// Newest first; ties by id.
-    private static func newestFirst(_ runs: [Run]) -> [Run] {
+    static func newestFirst(_ runs: [Run]) -> [Run] {
         runs.sorted { a, b in
             let (x, y) = (runAt(a), runAt(b))
             return x != y ? x > y : jsLess(a.id, b.id)
         }
     }
 
-    private static func statusOf(_ run: Run, _ jobs: [Job]) -> CiRun.Status {
+    static func statusOf(_ run: Run, _ jobs: [Job]) -> CiRun.Status {
         CiRun.runStatus(state: run.state, jobs: jobs.filter { $0.runId == run.id }.map { ($0.status, $0.conclusion) }).status
     }
 
@@ -402,6 +597,19 @@ public enum CiPage {
         return sessions.contains { $0.id == root && $0.userId == viewerId }
     }
 
+    /// #EXP-2214 (fixture `kindCases`): what a run is for. A merge queue run
+    /// (its trigger, its train, an `exp-train/` ref); a pull request's (its
+    /// PR, or the pull_request trigger); a RELEASE run (a tag, a manual or
+    /// scheduled run, a push to the repository's default branch, `main` when
+    /// unknown); anything else is a BRANCH run (a push to another branch).
+    public static func runKind(_ run: Run, repos: [Repo]) -> RunKind {
+        if run.trigger == "merge_train" || present(run.mergeTrainId) != nil || (run.ref ?? "").hasPrefix("exp-train/") { return .train }
+        if present(run.pullRequestId) != nil || run.trigger == "pull_request" { return .pullRequest }
+        if run.trigger == "tag" || run.trigger == "manual" || run.trigger == "schedule" { return .release }
+        let branch = repos.first { $0.id == run.repositoryId }?.defaultBranch ?? "main"
+        return run.trigger == "push" && run.ref == branch ? .release : .branch
+    }
+
     private static func triggerText(_ run: Run, _ pullRequests: [Pr]) -> String {
         if run.trigger == "pull_request", let prId = run.pullRequestId, let pr = pullRequests.first(where: { $0.id == prId }) {
             return Copy.pullRequest.replacingOccurrences(of: "{number}", with: String(pr.number))
@@ -413,12 +621,22 @@ public enum CiPage {
         repos.first { $0.id == id }?.fullName ?? Copy.unknownRepository
     }
 
-    /// A running merge train run is its batch: `Testing #a, #b together`.
-    private static func batchTitle(_ run: Run, _ pullRequests: [Pr]) -> String? {
+    static func numbers(_ list: [Int]) -> String {
+        list.map { "#\($0)" }.joined(separator: ", ")
+    }
+
+    /// A merge queue run is its batch: `Testing #a, #b together` (#EXP-2214:
+    /// its train's units, else, running, the repo's testing PRs).
+    static func batchTitle(_ run: Run, pullRequests: [Pr], trains: [Train]) -> String? {
+        if let trainId = present(run.mergeTrainId), let train = trains.first(where: { $0.id == trainId }) {
+            let list = train.units.flatMap { $0 }.compactMap { id in pullRequests.first { $0.id == id }?.number }
+            if list.count == 1 { return Copy.batchOne.replacingOccurrences(of: "{number}", with: "#\(list[0])") }
+            if list.count > 1 { return Copy.batchTitle.replacingOccurrences(of: "{numbers}", with: numbers(list)) }
+        }
         guard run.trigger == "merge_train", run.state == "pending" else { return nil }
         let members = pullRequests.filter { $0.repositoryId == run.repositoryId && $0.mergeState == "testing" }.map(\.number).sorted()
         guard !members.isEmpty else { return nil }
-        return Copy.batchTitle.replacingOccurrences(of: "{numbers}", with: members.map { "#\($0)" }.joined(separator: ", "))
+        return Copy.batchTitle.replacingOccurrences(of: "{numbers}", with: numbers(members))
     }
 
     /// One row of the list (both form factors' strings).
@@ -435,13 +653,15 @@ public enum CiPage {
         let pr = run.pullRequestId.flatMap { id in input.pullRequests.first { $0.id == id } }
         let duration = msOf(run.startedAt).map { PrChecks.formatDuration(ms: (msOf(run.completedAt) ?? at) - $0) }
         let (glyph, tone) = statusTone(status)
+        // #EXP-2214: a tag run reads as its tag (`ios-v0.14.150`).
+        let tag = run.trigger == "tag" ? present(run.ref) : nil
         return RunListRow(
             id: run.id,
             status: status,
             statusLabel: CiRun.statusLabel(status),
             glyph: glyph,
             tone: tone,
-            title: run.title ?? batchTitle(run, input.pullRequests) ?? pr?.title ?? run.name,
+            title: tag ?? run.title ?? batchTitle(run, pullRequests: input.pullRequests, trains: input.trains) ?? pr?.title ?? run.name,
             workflow: workflow,
             repositoryId: run.repositoryId,
             repository: repository,
@@ -461,10 +681,12 @@ public enum CiPage {
         )
     }
 
-    /// The Runs tab: every run of the filter, newest first, at most `Limits.runs`.
-    public static func runList(_ input: Input, filter: RunFilter) -> [RunListRow] {
+    /// The runs of the filter (#EXP-2214: of `kinds` when given), newest
+    /// first, at most `Limits.runs`.
+    public static func runList(_ input: Input, filter: RunFilter, kinds: [RunKind]? = nil) -> [RunListRow] {
         var rows: [RunListRow] = []
         for run in newestFirst(input.runs) {
+            if let kinds, !kinds.contains(runKind(run, repos: input.repos)) { continue }
             let status = statusOf(run, input.jobs)
             let source = source(run.provider)
             if let repo = filter.repositoryId, !repo.isEmpty, run.repositoryId != repo { continue }
@@ -504,10 +726,10 @@ public enum CiPage {
         return parts[0] == String(today.prefix(4)) ? label : "\(label) \(parts[0])"
     }
 
-    /// The Runs tab's sections: In progress (running + queued, with a
-    /// count), then one per local day, newest first.
-    public static func runGroups(_ input: Input, filter: RunFilter) -> [RunGroup] {
-        let rows = runList(input, filter: filter)
+    /// Run sections (the Releases tab): In progress (running + queued, with
+    /// a count), then one per local day, newest first.
+    public static func runGroups(_ input: Input, filter: RunFilter, kinds: [RunKind]? = nil) -> [RunGroup] {
+        let rows = runList(input, filter: filter, kinds: kinds)
         let isLive = { (row: RunListRow) in row.status == .running || row.status == .queued }
         let live = rows.filter(isLive)
         var groups: [RunGroup] = []
@@ -578,90 +800,6 @@ public enum CiPage {
         ciBadge(runs: input.runs, jobs: input.jobs, pullRequests: input.pullRequests, sessions: input.sessions, viewerId: input.viewerId)
     }
 
-    private static let trainWaiting: Set<String> = ["queued", "checks", "held", "conflict", "failing"]
-
-    /// The merge train per repository: its testing batches, then (`queue`:
-    /// the Merge train tab) the queued PRs by position and the waiting ones.
-    public static func trainGroups(_ input: Input, queue: Bool) -> [TrainGroup] {
-        let pill = MergeTrain.Copy.Pill.self
-        let waiting: [String: String] = [
-            "checks": pill.checksRunning, "held": pill.onHold, "conflict": pill.conflict, "failing": pill.failing,
-        ]
-        var order: [String] = []
-        var byRepo: [String: [Pr]] = [:]
-        for pr in input.pullRequests {
-            let state = pr.mergeState
-            guard state == "testing" || (queue && state.map { trainWaiting.contains($0) } == true) else { continue }
-            if byRepo[pr.repositoryId] == nil { order.append(pr.repositoryId) }
-            byRepo[pr.repositoryId, default: []].append(pr)
-        }
-        var groups: [TrainGroup] = []
-        for repositoryId in order {
-            let prs = byRepo[repositoryId] ?? []
-            var rows: [TrainRow] = []
-            var batchOrder: [String] = []
-            var batches: [String: [Pr]] = [:]
-            let testing = prs.enumerated().filter { $0.element.mergeState == "testing" }
-                .sorted { $0.element.number != $1.element.number ? $0.element.number < $1.element.number : $0.offset < $1.offset }
-                .map(\.element)
-            for pr in testing {
-                let key = pr.mergeTrainId ?? pr.id
-                if batches[key] == nil { batchOrder.append(key) }
-                batches[key, default: []].append(pr)
-            }
-            let sortedBatches = batchOrder.enumerated().sorted { a, b in
-                let (x, y) = (batches[a.element]![0].number, batches[b.element]![0].number)
-                return x != y ? x < y : a.offset < b.offset
-            }.map(\.element)
-            for key in sortedBatches {
-                let members = batches[key]!
-                let first = members[0]
-                rows.append(TrainRow(
-                    id: "batch.\(key)",
-                    identifier: "#\(first.number)",
-                    title: members.count == 1 ? first.title : Copy.trainBatch.replacingOccurrences(of: "{count}", with: String(members.count)),
-                    subtitle: members.count == 1 ? nil : members.map { "#\($0.number) \($0.title)" }.joined(separator: " · "),
-                    glyph: .running,
-                    badge: pill.testing,
-                    pullRequestId: first.id
-                ))
-            }
-            if queue {
-                let queued = prs.enumerated().filter { $0.element.mergeState == "queued" }.sorted { a, b in
-                    let (x, y) = (a.element.mergePosition ?? Int.max, b.element.mergePosition ?? Int.max)
-                    if x != y { return x < y }
-                    if a.element.number != b.element.number { return a.element.number < b.element.number }
-                    return a.offset < b.offset
-                }.map(\.element)
-                for pr in queued {
-                    let badge = pr.mergePosition.map {
-                        pill.queuedAt.replacingOccurrences(of: "{position}", with: MergeTrain.ordinal($0))
-                    } ?? pill.queued
-                    rows.append(TrainRow(
-                        id: pr.id, identifier: "#\(pr.number)", title: pr.title, subtitle: nil,
-                        glyph: .queued, badge: badge, pullRequestId: pr.id
-                    ))
-                }
-                let rest = prs.enumerated().filter { $0.element.mergeState != "queued" && $0.element.mergeState != "testing" }
-                    .sorted { $0.element.number != $1.element.number ? $0.element.number < $1.element.number : $0.offset < $1.offset }
-                    .map(\.element)
-                for pr in rest {
-                    let state = pr.mergeState ?? ""
-                    let glyph: PrChecks.Glyph = state == "checks" ? .queued : state == "held" ? .skipped : .failed
-                    rows.append(TrainRow(
-                        id: pr.id, identifier: "#\(pr.number)", title: pr.title, subtitle: nil,
-                        glyph: glyph, badge: waiting[state] ?? "", pullRequestId: pr.id
-                    ))
-                }
-            }
-            guard !rows.isEmpty else { continue }
-            groups.append(TrainGroup(
-                repositoryId: repositoryId, title: repoName(input.repos, repositoryId), caption: prs[0].base, rows: rows
-            ))
-        }
-        return groups.sorted { a, b in a.title != b.title ? jsLess(a.title, b.title) : jsLess(a.repositoryId, b.repositoryId) }
-    }
-
     /// A runner's labels: its OS, then its own, lower-cased.
     public static func runnerLabels(platform: String?, labels: [String]) -> [String] {
         var out: [String] = []
@@ -708,70 +846,15 @@ public enum CiPage {
         return bare.split(separator: "/").map(String.init) == ["ci"]
     }
 
-    /// Tab counts: the train's rows, the runners.
-    public static func tabCounts(_ input: Input) -> (train: Int, runners: Int) {
-        (trainGroups(input, queue: true).reduce(0) { $0 + $1.rows.count }, input.runners.count)
+    /// #EXP-2214 tab counts (after each label, muted; 0 = none): the merge
+    /// queue's PRs (testing + up next), the Open pull requests, the release
+    /// runs in progress, the runners.
+    public static func tabCounts(_ input: Input) -> [Tab: Int] {
+        [
+            .train: queue(input).reduce(0) { $0 + $1.stats.inQueue },
+            .prs: prGroups(input, filter: .all).first { $0.id == .open }?.count ?? 0,
+            .releases: runGroups(input, filter: .all, kinds: [.release]).first { $0.id == "in-progress" }?.count ?? 0,
+            .runners: input.runners.count,
+        ]
     }
-}
-
-extension CiPage {
-    // MARK: - The specimen (fixture `scenario`: the page every platform's shot renders)
-
-    public static let specimen = Input(
-        runs: [
-            Run(id: "r483", repositoryId: "repo-engine", number: 483, name: "gate", sha: "82aa98f382aa98f382aa98f382aa98f382aa98f3", ref: "exp/APP-32", trigger: "pull_request", state: "pending", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:26:48.000Z", completedAt: nil, createdAt: "2026-11-27T10:26:48.000Z", title: "Repack once per push, not per ref"),
-            Run(id: "r91", repositoryId: "repo-engine", number: 91, name: "Merge train", sha: "3db841eb3db841eb3db841eb3db841eb3db841eb", ref: "main", trigger: "merge_train", state: "pending", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T10:28:20.000Z", completedAt: nil, createdAt: "2026-11-27T10:28:20.000Z", title: nil),
-            Run(id: "g1207", repositoryId: "repo-mobile", number: 1207, name: "build-ios", sha: "f78ec187f78ec187f78ec187f78ec187f78ec187", ref: "release/2.4", trigger: "tag", state: "pending", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: nil, completedAt: nil, createdAt: "2026-11-27T10:29:00.000Z", title: "Bump the widget to 2.4.1"),
-            Run(id: "r482", repositoryId: "repo-engine", number: 482, name: "gate", sha: "e4731f42e4731f42e4731f42e4731f42e4731f42", ref: "exp/APP-33", trigger: "pull_request", state: "failure", pullRequestId: "pr-213", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T09:59:20.000Z", completedAt: "2026-11-27T10:12:00.000Z", createdAt: "2026-11-27T09:59:20.000Z", title: "Mirror prunes deleted branches"),
-            Run(id: "g1206", repositoryId: "repo-mobile", number: 1206, name: "test", sha: "595747d6595747d6595747d6595747d6595747d6", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "github", startedAt: "2026-11-27T09:22:54.000Z", completedAt: "2026-11-27T09:30:00.000Z", createdAt: "2026-11-27T09:22:54.000Z", title: "Offline queue survives a cold start"),
-            Run(id: "g57", repositoryId: "repo-site", number: 57, name: "deploy", sha: "3a5a18693a5a18693a5a18693a5a18693a5a1869", ref: "main", trigger: "push", state: "failure", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-26T08:27:57.000Z", completedAt: "2026-11-26T08:30:00.000Z", createdAt: "2026-11-26T08:27:57.000Z", title: "Pricing page copy"),
-            Run(id: "g58", repositoryId: "repo-site", number: 58, name: "deploy", sha: "d891921ad891921ad891921ad891921ad891921a", ref: "main", trigger: "push", state: "success", pullRequestId: nil, createdByUserId: "u-me", provider: "github", startedAt: "2026-11-27T08:27:57.000Z", completedAt: "2026-11-27T08:30:00.000Z", createdAt: "2026-11-27T08:27:57.000Z", title: "Pricing page copy, take two"),
-            Run(id: "r481", repositoryId: "repo-engine", number: 481, name: "gate", sha: "463ba591463ba591463ba591463ba591463ba591", ref: "exp/APP-32", trigger: "pull_request", state: "failure", pullRequestId: "pr-214", createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T07:30:00.000Z", completedAt: "2026-11-27T07:30:24.000Z", createdAt: "2026-11-27T07:30:00.000Z", title: "Repack once per push, not per ref"),
-            Run(id: "r480", repositoryId: "repo-gone", number: 480, name: "nightly", sha: "a8042be0a8042be0a8042be0a8042be0a8042be0", ref: nil, trigger: "schedule", state: "success", pullRequestId: nil, createdByUserId: nil, provider: "exponential", startedAt: "2026-11-27T01:30:00.000Z", completedAt: "2026-11-27T01:44:12.000Z", createdAt: "2026-11-27T01:30:00.000Z", title: nil),
-        ],
-        jobs: [
-            Job(runId: "r483", status: "in_progress", conclusion: nil, runsOn: ["linux"], runnerDeviceId: "dev-mint", provider: "exponential"),
-            Job(runId: "r483", status: "queued", conclusion: nil, runsOn: ["linux"], runnerDeviceId: nil, provider: "exponential"),
-            Job(runId: "r483", status: "queued", conclusion: nil, runsOn: ["mac"], runnerDeviceId: nil, provider: "exponential"),
-            Job(runId: "r91", status: "in_progress", conclusion: nil, runsOn: ["linux"], runnerDeviceId: "dev-mint", provider: "exponential"),
-            Job(runId: "g1207", status: "queued", conclusion: nil, runsOn: ["macos-latest"], runnerDeviceId: nil, provider: "github"),
-            Job(runId: "r482", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
-            Job(runId: "r482", status: "completed", conclusion: "failure", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
-            Job(runId: "g1206", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "github"),
-            Job(runId: "g57", status: "completed", conclusion: "failure", runsOn: [], runnerDeviceId: nil, provider: "github"),
-            Job(runId: "g58", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "github"),
-            Job(runId: "r481", status: "completed", conclusion: "cancelled", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
-            Job(runId: "r480", status: "completed", conclusion: "success", runsOn: [], runnerDeviceId: nil, provider: "exponential"),
-        ],
-        repos: [
-            Repo(id: "repo-engine", fullName: "acme/engine"),
-            Repo(id: "repo-mobile", fullName: "acme/mobile"),
-            Repo(id: "repo-site", fullName: "acme/site"),
-        ],
-        pullRequests: [
-            Pr(id: "pr-211", number: 211, title: "Fix bisect on a red batch", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", mergeState: "testing", mergePosition: nil, mergeTrainId: "train-91"),
-            Pr(id: "pr-212", number: 212, title: "Runner labels", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", mergeState: "testing", mergePosition: nil, mergeTrainId: "train-91"),
-            Pr(id: "pr-213", number: 213, title: "Log tail", repositoryId: "repo-engine", rootSessionId: "s-mine", base: "main", mergeState: "testing", mergePosition: nil, mergeTrainId: "train-91"),
-            Pr(id: "pr-214", number: 214, title: "Reduce cold start below 400 ms", repositoryId: "repo-engine", rootSessionId: "s-mine", base: "main", mergeState: "checks", mergePosition: nil, mergeTrainId: nil),
-            Pr(id: "pr-215", number: 215, title: "Cache the planner", repositoryId: "repo-engine", rootSessionId: "s-other", base: "main", mergeState: "queued", mergePosition: 1, mergeTrainId: nil),
-            Pr(id: "pr-40", number: 40, title: "Dark splash", repositoryId: "repo-mobile", rootSessionId: nil, base: "main", mergeState: "held", mergePosition: nil, mergeTrainId: nil),
-            Pr(id: "pr-41", number: 41, title: "Old", repositoryId: "repo-mobile", rootSessionId: nil, base: "main", mergeState: "merged", mergePosition: nil, mergeTrainId: nil),
-        ],
-        sessions: [
-            Session(id: "s-mine", userId: "u-me"),
-            Session(id: "s-other", userId: "u-other"),
-        ],
-        runners: [
-            Runner(id: "dev-mint", label: "mint", platform: "linux", labels: ["GPU"], slots: 2, lastSeenAt: "2026-11-27T10:29:40.000Z"),
-            Runner(id: "dev-mac", label: "Alex's MacBook Pro", platform: "macos", labels: [], slots: 1, lastSeenAt: "2026-11-27T10:29:55.000Z"),
-            Runner(id: "dev-old", label: "build-box", platform: nil, labels: [], slots: 4, lastSeenAt: "2026-11-26T22:00:00.000Z"),
-        ],
-        users: [
-            User(id: "u-me", name: "Mara Lind", image: nil),
-            User(id: "u-other", name: "Jonas Berg", image: nil),
-        ],
-        viewerId: "u-me",
-        now: "2026-11-27T10:30:00.000Z",
-        utcOffsetMinutes: 60
-    )
 }

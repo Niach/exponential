@@ -1834,7 +1834,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "issue_events", "issue_statuses",
                       "issue_drafts", "sessions", "session_issues", "messages",
                       "pull_requests", "pull_request_issues", "pull_request_checks", "ci_runs", "ci_jobs",
-                      "sidebar_layout", "repositories", "electric_offsets"] {
+                      "sidebar_layout", "repositories", "merge_trains", "merge_train_events", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -1982,7 +1982,8 @@ final class DatabaseMigrationTests: XCTestCase {
             ["id", "team_id", "repository_id", "number", "name", "sha", "ref", "trigger",
              "pull_request_id", "state", "error", "rerun_of", "created_by_user_id",
              "started_at", "completed_at", "created_at", "updated_at",
-             "provider", "external_id", "external_url", "external_attempt", "external_access", "title"]
+             "provider", "external_id", "external_url", "external_attempt", "external_access", "title",
+             "merge_train_id"]
         )
         XCTAssertEqual(
             try columnNames(pool, "ci_jobs"),
@@ -2004,6 +2005,17 @@ final class DatabaseMigrationTests: XCTestCase {
             ["id", "team_id", "provider", "full_name", "slug", "description", "sync", "default_branch",
              "default_branch_override", "private", "inaccessible_at", "shared_by_user_id", "sort_order",
              "created_at", "updated_at"]
+        )
+        // #EXP-2214: the merge-trains / merge-train-events allowlists, column for column.
+        XCTAssertEqual(
+            try columnNames(pool, "merge_trains"),
+            ["id", "team_id", "repository_id", "base", "base_sha", "units", "state", "attempt", "bisect_of",
+             "pending", "untested", "tested_sha", "finished_at", "created_at", "updated_at"]
+        )
+        XCTAssertEqual(
+            try columnNames(pool, "merge_train_events"),
+            ["id", "team_id", "repository_id", "pull_request_id", "merge_train_id", "kind", "base", "attempt",
+             "reason", "checks", "ci_job_id", "job_url", "files", "sha", "by_user_id", "created_at"]
         )
         XCTAssertEqual(
             try columnNames(pool, "pull_request_issues"),
@@ -4207,6 +4219,65 @@ final class DatabaseMigrationTests: XCTestCase {
         let storedJob = try XCTUnwrap(try pool.read { db in try CiJobEntity.fetchOne(db, key: "gj1") })
         XCTAssertEqual(storedJob.provider, "github")
         XCTAssertEqual(storedJob.externalId, "5")
+    }
+
+    // #EXP-2214: v119 adds `ci_runs.merge_train_id` (resetting ONLY the
+    // ci-runs cursor) and the synced merge queue tables; wire rows (jsonb
+    // arrays, `t` booleans, string ints) round-trip into the page's input.
+    func testMergeQueueAdded() throws {
+        let pool = try makePool("exp2214-merge-queue")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v118_ci_run_title")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "ci_runs" ("id", "team_id", "number", "created_at", "updated_at")
+                VALUES ('r1', 't', 1, 'x', 'x')
+                """)
+            for shape in ["ci-runs", "ci-jobs"] {
+                try db.execute(sql: """
+                    INSERT OR REPLACE INTO "electric_offsets" ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '5_0', 0, 1)
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "ci_runs").contains("merge_train_id"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v119_merge_queue"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["ci-runs"])
+            XCTAssertNil(try XCTUnwrap(try CiRunEntity.fetchOne(db, key: "r1")).mergeTrainId)
+        }
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        let decoder = JSONDecoder()
+        let run = try decoder.decode(CiRunEntity.self, from: Data("""
+            {"id":"r2","team_id":"t","number":"2","trigger":"merge_train","merge_train_id":"tr1","created_at":"x","updated_at":"x"}
+            """.utf8))
+        let train = try decoder.decode(MergeTrainEntity.self, from: Data("""
+            {"id":"tr1","team_id":"t","repository_id":"repo","base":"main","base_sha":"abc","units":[["p1"],["p2","p3"]],
+             "state":"testing","attempt":"1","pending":[[["p2"]]],"untested":"t","created_at":"2026-11-27T10:00:00Z"}
+            """.utf8))
+        let event = try decoder.decode(MergeTrainEventEntity.self, from: Data("""
+            {"id":"e1","team_id":"t","repository_id":"repo","pull_request_id":"p1","merge_train_id":"tr1","kind":"failing",
+             "base":"main","attempt":2,"checks":["test (linux)"],"ci_job_id":"j1","files":[],"created_at":"2026-11-27T10:05:00Z"}
+            """.utf8))
+        try pool.write { db in
+            try run.save(db)
+            try train.save(db)
+            try event.save(db)
+        }
+        let input = try pool.read { db in try CiPage.fetchRows(db, viewerId: "u") }
+        XCTAssertEqual(input.runs.first { $0.id == "r2" }?.mergeTrainId, "tr1")
+        XCTAssertEqual(input.trains, [CiPage.Train(
+            id: "tr1", repositoryId: "repo", base: "main", baseSha: "abc", units: [["p1"], ["p2", "p3"]], state: "testing",
+            attempt: 1, pending: [[["p2"]]], untested: true, createdAt: "2026-11-27T10:00:00Z"
+        )])
+        XCTAssertEqual(input.trainEvents, [CiPage.TrainEvent(
+            id: "e1", repositoryId: "repo", pullRequestId: "p1", mergeTrainId: "tr1", kind: "failing", base: "main",
+            attempt: 2, checks: ["test (linux)"], ciJobId: "j1", createdAt: "2026-11-27T10:05:00Z"
+        )])
     }
 
     // #EXP-2172 redesign: v117 adds `ci_runs.title`, resetting ONLY the

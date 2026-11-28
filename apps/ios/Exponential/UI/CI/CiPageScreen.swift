@@ -6,21 +6,18 @@ import SwiftUI
 // #EXP-2172 (fixtures/ci-page.json, view `ci`): THE CI page, a root
 // destination across every member team (the phones' More › CI, the iPad
 // sidebar's CI row), as the genUI tree web builds (`CiPageView.ciPageTree`,
-// phone: true) painted by the core catalog. Everything is synced; the
-// repository names come from `repositories.list` per member team (as
-// Settings › Repositories) until the repositories shape syncs. The iPad
-// (regular width) draws the wide tree: trailing rows, the runner chip.
+// phone: true) painted by the core catalog. Everything is synced (#EXP-2214:
+// the repositories shape, the merge queue's trains and history too). The
+// Merge queue tab opens first. The iPad (regular width) draws the wide tree:
+// the queue's stats and columns, trailing rows, the runner chip.
 
 /// The route's screen: the synced rows, the tab and the filter.
 struct CiPageScreen: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(\.pushRoute) private var pushRoute
-    @Environment(\.openURL) private var openURL
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     @State private var input: CiPage.Input?
-    @State private var repos: [CiPage.Repo] = []
     @State private var state = CiPageView.State(phone: true)
     @State private var now = Date()
 
@@ -30,14 +27,9 @@ struct CiPageScreen: View {
         ZStack {
             AppBackground()
             if let input {
-                CiPagePage(
-                    input: withClock(input),
-                    state: drawn,
-                    onState: { state = $0 },
-                    onOpenRun: { pushRoute(.ciRun(accountId: accountId, runId: $0)) },
-                    onOpenPr: openPullRequest,
-                    onOpenRunner: { _ in pushRoute(.devices(accountId: accountId)) }
-                )
+                CiEvents { onEvent in
+                    CiPagePage(input: CiPage.withClock(input, now), state: drawn, onState: { state = $0 }, onEvent: onEvent)
+                }
             } else {
                 SkeletonRows(rows: 4)
                     .padding(.horizontal, 16)
@@ -46,8 +38,7 @@ struct CiPageScreen: View {
             }
         }
         .pageHeader(CiPage.Copy.title, pushed: true)
-        .task { await observe() }
-        .task { await loadRepos() }
+        .task { input = await CiPage.observeRows(deps: deps, accountId: accountId) { input = $0 } }
         .task(id: running) {
             // Running durations tick each second, the rest each minute.
             while !Task.isCancelled {
@@ -62,10 +53,12 @@ struct CiPageScreen: View {
         next.phone = sizeClass != .regular
         return next
     }
+}
 
-    private func withClock(_ input: CiPage.Input) -> CiPage.Input {
+extension CiPage {
+    /// The input at the viewer's clock (`now`, the UTC offset).
+    static func withClock(_ input: Input, _ now: Date) -> Input {
         var next = input
-        next.repos = repos
         next.utcOffsetMinutes = TimeZone.current.secondsFromGMT(for: now) / 60
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -73,33 +66,77 @@ struct CiPageScreen: View {
         return next
     }
 
-    private func observe() async {
-        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+    /// The synced rows (`fetchRows`: runs, jobs, PRs, repositories, the
+    /// merge queue) as they change; an unreadable store = an empty page.
+    @MainActor
+    static func observeRows(deps: AppDependencies, accountId: String, onChange: (Input) -> Void) async -> Input? {
         let viewer = deps.auth.userId ?? ""
-        let values = ValueObservation.tracking { db in try CiPage.fetchRows(db, viewerId: viewer) }
+        let empty = Input(runs: [], jobs: [], repos: [], pullRequests: [], sessions: [], runners: [], viewerId: viewer, now: "")
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return empty }
+        let values = ValueObservation.tracking { db in try fetchRows(db, viewerId: viewer) }
+        var last: Input?
         do {
-            for try await next in values.values(in: pool) { input = next }
+            for try await next in values.values(in: pool) {
+                last = next
+                onChange(next)
+            }
         } catch {
-            if input == nil { input = CiPage.Input(runs: [], jobs: [], repos: [], pullRequests: [], sessions: [], runners: [], viewerId: viewer, now: "") }
+            return last ?? empty
         }
+        return last
+    }
+}
+
+/// #EXP-2214: what the CI trees' presses do, on the CI page and the repo
+/// page's Runs tab alike (web `ci-page.tsx` / `repo-ci.tsx`): a run opens its
+/// run page, Open log our run page on that job (else the forge's job page),
+/// a PR its chat (else its page), a runner the Devices page; the queue's ⋯
+/// Merge now / Hold and Resume call `pullRequests.mergeNow` /
+/// `pullRequests.hold` (a failure toasts).
+struct CiEvents<Content: View>: View {
+    @ViewBuilder let content: (_ onEvent: @escaping (String, [String: CardJSON]?, [String: CardJSON]?) -> Void) -> Content
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
+    @Environment(\.openURL) private var openURL
+    @Environment(\.toaster) private var toaster
+
+    var body: some View {
+        content(handle)
     }
 
-    /// `repositories.list` of every member team, one read per team.
-    private func loadRepos() async {
-        guard let pool = try? deps.db.pool(forAccountId: accountId),
-              let teams = try? await pool.read({ db in try TeamEntity.fetchAll(db) })
-        else { return }
-        var all: [CiPage.Repo] = []
-        await withTaskGroup(of: [CiPage.Repo].self) { group in
-            for team in teams {
-                group.addTask { [deps, accountId] in
-                    let rows = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: team.id)) ?? []
-                    return rows.map { CiPage.Repo(id: $0.id, fullName: $0.fullName) }
-                }
-            }
-            for await rows in group { all.append(contentsOf: rows) }
+    private func handle(_ name: String, _ context: [String: CardJSON]?, _ payload: [String: CardJSON]?) {
+        func value(_ key: String, in map: [String: CardJSON]?) -> String? {
+            if case let .string(v)? = map?[key], !v.isEmpty { return v }
+            return nil
         }
-        repos = all
+        let actions = MergeTrainActions(deps: deps, accountId: accountId, toaster: toaster)
+        switch name {
+        case CiPageView.Events.openRun:
+            if let run = value("run", in: context) { pushRoute(.ciRun(accountId: accountId, runId: run)) }
+        case CiPageView.Events.openJob:
+            if let run = value("run", in: context), let job = value("job", in: context) {
+                pushRoute(.ciRun(accountId: accountId, runId: run, job: job))
+            }
+        case CiPageView.Events.openUrl:
+            if let url = value("url", in: context).flatMap(URL.init(string:)) { openURL(url) }
+        case CiPageView.Events.openPr:
+            if let pr = value("pr", in: context) { openPullRequest(pr) }
+        case CiPageView.Events.openRunner:
+            pushRoute(.devices(accountId: accountId))
+        case CiPageView.Events.queueMenu:
+            guard let pr = value("pr", in: context) else { return }
+            switch value("value", in: payload) {
+            case "merge-now": actions.mergeNow(pullRequestId: pr)
+            case "hold": actions.hold(pullRequestId: pr, hold: true)
+            default: break
+            }
+        case CiPageView.Events.resume:
+            if let pr = value("pr", in: context) { actions.hold(pullRequestId: pr, hold: false) }
+        default:
+            break
+        }
     }
 
     /// A pull request opens its chat (where it was made), else its page.
@@ -118,14 +155,13 @@ struct CiPageScreen: View {
     }
 }
 
-/// The stateless page (also the `ci` specimen).
+/// The stateless page (also the `ci` specimen). `onEvent` = every press
+/// that is not a tab or filter change (`CiEvents`).
 struct CiPagePage: View {
     let input: CiPage.Input
     let state: CiPageView.State
     var onState: (CiPageView.State) -> Void = { _ in }
-    var onOpenRun: (String) -> Void = { _ in }
-    var onOpenPr: (String) -> Void = { _ in }
-    var onOpenRunner: (String) -> Void = { _ in }
+    var onEvent: (String, [String: CardJSON]?, [String: CardJSON]?) -> Void = { _, _, _ in }
 
     var body: some View {
         let tree = CiPageView.ciPageTree(input, state: state)
@@ -143,23 +179,18 @@ struct CiPagePage: View {
 
     /// #EXP-2169 ("one look"): the host's tab switcher, THE board's segmented
     /// capsule (`GlassSegmentedControl`, hugging, left-aligned, scrolling past
-    /// the width), Merge train and Runners with their count after the label
-    /// as a muted number (none at zero).
+    /// the width). #EXP-2214: Merge queue · Pull requests · Releases ·
+    /// Runners (phones copy.phoneTabs), each count after its label as a
+    /// muted number (none at zero).
     private var tabs: some View {
         let counts = CiPage.tabCounts(input)
-        func count(_ tab: CiPage.Tab) -> Int? {
-            let value: Int? = switch tab {
-            case .runs: nil
-            case .train: counts.train
-            case .runners: counts.runners
-            }
-            return value.flatMap { $0 > 0 ? $0 : nil }
-        }
+        let labels = state.phone ? CiPage.Copy.phoneTabs : CiPage.Copy.tabs
+        func count(_ tab: CiPage.Tab) -> Int? { counts[tab].flatMap { $0 > 0 ? $0 : nil } }
         return ScrollView(.horizontal, showsIndicators: false) {
             GlassSegmentedControl(
                 options: CiPage.Tab.allCases,
                 selection: state.tab,
-                label: { CiPage.Copy.tabs[$0.rawValue] ?? $0.rawValue },
+                label: { labels[$0.rawValue] ?? $0.rawValue },
                 identifier: { "\(CiPage.TestIds.tabs)-\($0.rawValue)" },
                 accessory: { tab in
                     count(tab).map { value in
@@ -194,32 +225,31 @@ struct CiPagePage: View {
                 if next != state { onState(next) }
                 return
             }
-            switch name {
-            case CiPageView.Events.openRun:
-                if case let .string(run)? = context?["run"] { onOpenRun(run) }
-            case CiPageView.Events.openPr:
-                if case let .string(pr)? = context?["pr"] { onOpenPr(pr) }
-            case CiPageView.Events.openRunner:
-                if case let .string(device)? = context?["device"] { onOpenRunner(device) }
-            default: break
-            }
+            onEvent(name, context, payload)
         }
     }
 }
 
-/// #EXP-2169 ("one look", ci-page-view.json `repositoryId` cases): THE repo
-/// page's Runs tab = the CI page's day Sections and rows of ONE repository
-/// (`CiPageView.ciRepoRunsTree`), no filter bar; a row opens the run page.
+/// #EXP-2214 (ci-page-view.json `repositoryId` cases): THE repo page's Runs
+/// tab = a `Segmented` of Merge queue · Pull requests · Releases inside the
+/// tree, then that panel of ONE repository (`CiPageView.ciRepoRunsTree`).
 /// Stateless (also the `repo-runs` specimen); the host scrolls.
 struct RepoRunsView: View {
     let input: CiPage.Input
     let repositoryId: String
+    var tab: CiPage.Tab = .train
     var phone = true
-    var onOpenRun: (String) -> Void = { _ in }
+    var onTab: (CiPage.Tab) -> Void = { _ in }
+    var onEvent: (String, [String: CardJSON]?, [String: CardJSON]?) -> Void = { _, _, _ in }
 
     var body: some View {
-        CiSurface(surfaceId: "repo-runs", tree: CiPageView.ciRepoRunsTree(input, repositoryId: repositoryId, phone: phone)) { name, context, _ in
-            if name == CiPageView.Events.openRun, case let .string(run)? = context?["run"] { onOpenRun(run) }
+        CiSurface(surfaceId: "repo-runs", tree: CiPageView.ciRepoRunsTree(input, repositoryId: repositoryId, tab: tab, phone: phone)) { name, context, payload in
+            if name == CiPageView.Events.tab {
+                if case let .string(value)? = payload?["value"], let next = CiPage.Tab(rawValue: value),
+                   CiPageView.repoTabs.contains(next) { onTab(next) }
+                return
+            }
+            onEvent(name, context, payload)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(RepoCi.TestIds.runs)
@@ -230,13 +260,12 @@ struct RepoRunsView: View {
 /// clock ticking each second while one of this repository's runs runs.
 struct RepoRunsLive: View {
     let repositoryId: String
-    let fullName: String
-    var onOpenRun: (String) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var input: CiPage.Input?
+    @State private var tab: CiPage.Tab = .train
     @State private var now = Date()
 
     private var running: Bool {
@@ -246,38 +275,22 @@ struct RepoRunsLive: View {
     var body: some View {
         Group {
             if let input {
-                RepoRunsView(input: withClock(input), repositoryId: repositoryId, phone: sizeClass != .regular, onOpenRun: onOpenRun)
+                CiEvents { onEvent in
+                    RepoRunsView(
+                        input: CiPage.withClock(input, now), repositoryId: repositoryId, tab: tab,
+                        phone: sizeClass != .regular, onTab: { tab = $0 }, onEvent: onEvent
+                    )
+                }
             } else {
                 SkeletonRows(rowHeight: 52)
             }
         }
-        .task(id: "\(accountId)/\(repositoryId)") { await observe() }
+        .task(id: "\(accountId)/\(repositoryId)") { input = await CiPage.observeRows(deps: deps, accountId: accountId) { input = $0 } }
         .task(id: running) {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(running ? 1 : 60))
                 now = Date()
             }
-        }
-    }
-
-    private func withClock(_ input: CiPage.Input) -> CiPage.Input {
-        var next = input
-        next.repos = [CiPage.Repo(id: repositoryId, fullName: fullName)]
-        next.utcOffsetMinutes = TimeZone.current.secondsFromGMT(for: now) / 60
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        next.now = iso.string(from: now)
-        return next
-    }
-
-    private func observe() async {
-        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
-        let viewer = deps.auth.userId ?? ""
-        let values = ValueObservation.tracking { db in try CiPage.fetchRows(db, viewerId: viewer) }
-        do {
-            for try await next in values.values(in: pool) { input = next }
-        } catch {
-            if input == nil { input = CiPage.Input(runs: [], jobs: [], repos: [], pullRequests: [], sessions: [], runners: [], viewerId: viewer, now: "") }
         }
     }
 }

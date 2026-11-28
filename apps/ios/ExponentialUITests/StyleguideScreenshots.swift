@@ -1415,7 +1415,7 @@ final class StyleguideScreenshots: XCTestCase {
             // #EXP-1804: the CI run page + the CI runner section (fixtures'
             // `specimen`s).
             case "ci-run": snapshot("sg_ci-run", settle: 2)
-            // #EXP-2172: the CI page, Runs tab (ci-page.json `scenario`).
+            // #EXP-2172: the CI page, #EXP-2214 its Merge queue tab (ci-page.json `scenario`).
             case "ci": snapshot("sg_ci", settle: 2)
             case "runner-settings": snapshot("sg_runner-settings", settle: 2)
             // #EXP-2169: the repo page's Runs tab (ci-page.json `scenario`,

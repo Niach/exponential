@@ -3565,7 +3565,70 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v119 (#EXP-2214, ci-page.json MERGE QUEUE TAB): `ci_runs.merge_train_id`
+        // (the merge queue run it tests; the ci-runs cursor resets only when
+        // it was added, so synced rows re-arrive carrying it) and the synced
+        // `merge_trains` + `merge_train_events` tables (brand-new shapes, no
+        // cursor yet).
+        migrator.registerMigration("v119_merge_queue") { db in
+            if try db.tableExists("ci_runs"),
+               try db.columns(in: "ci_runs").contains(where: { $0.name == "merge_train_id" }) == false {
+                try db.alter(table: "ci_runs") { t in
+                    t.add(column: "merge_train_id", .text)
+                }
+                if try db.tableExists("electric_offsets") {
+                    try db.execute(sql: """
+                        UPDATE "electric_offsets"
+                        SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                        WHERE "shape" = 'ci-runs'
+                        """)
+                }
+            }
+            try createMergeQueueTables(db)
+        }
+
         return migrator
+    }
+
+    /// #EXP-2214: the `merge_trains` / `merge_train_events` tables, mirroring
+    /// the shape allowlists (`/api/shapes/merge-trains`,
+    /// `/api/shapes/merge-train-events`); jsonb columns as JSON text.
+    static func createMergeQueueTables(_ db: Database) throws {
+        try db.create(table: "merge_trains", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("repository_id", .text).notNull().defaults(to: "")
+            t.column("base", .text).notNull().defaults(to: "")
+            t.column("base_sha", .text)
+            t.column("units", .text)
+            t.column("state", .text).notNull().defaults(to: "")
+            t.column("attempt", .integer).notNull().defaults(to: 0)
+            t.column("bisect_of", .text)
+            t.column("pending", .text)
+            t.column("untested", .boolean).notNull().defaults(to: false)
+            t.column("tested_sha", .text)
+            t.column("finished_at", .text)
+            t.column("created_at", .text).notNull().defaults(to: "")
+            t.column("updated_at", .text).notNull().defaults(to: "")
+        }
+        try db.create(table: "merge_train_events", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("repository_id", .text).notNull().defaults(to: "")
+            t.column("pull_request_id", .text).notNull().defaults(to: "")
+            t.column("merge_train_id", .text).indexed()
+            t.column("kind", .text).notNull().defaults(to: "")
+            t.column("base", .text).notNull().defaults(to: "")
+            t.column("attempt", .integer).notNull().defaults(to: 0)
+            t.column("reason", .text)
+            t.column("checks", .text)
+            t.column("ci_job_id", .text)
+            t.column("job_url", .text)
+            t.column("files", .text)
+            t.column("sha", .text)
+            t.column("by_user_id", .text)
+            t.column("created_at", .text).notNull().defaults(to: "")
+        }
     }
 
     /// #EXP-2171: the `repositories` table, mirroring the shape allowlist
