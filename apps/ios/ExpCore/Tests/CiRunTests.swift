@@ -459,7 +459,25 @@ final class CiRunViewTests: XCTestCase {
             repository: ciString(raw["repository"]),
             pullRequest: try ciPullRequest(raw["pullRequest"]),
             author: ciString(raw["author"]),
-            jobs: try XCTUnwrap(raw["jobs"] as? [[String: Any]]).map(ciJob)
+            jobs: try XCTUnwrap(raw["jobs"] as? [[String: Any]]).map(ciJob),
+            context: try (raw["context"] as? [String: Any]).map(runContext)
+        )
+    }
+
+    /// #EXP-2214: the model's `context` (ci-page.json `runContext`).
+    private func runContext(_ raw: [String: Any]) throws -> CiPage.RunContext {
+        CiPage.RunContext(
+            kind: try XCTUnwrap(CiPage.RunKind(rawValue: try XCTUnwrap(ciString(raw["kind"])))),
+            badge: try XCTUnwrap(ciString(raw["badge"])),
+            title: ciString(raw["title"]),
+            caption: ciString(raw["caption"]),
+            outcome: try ((raw["outcome"] as? [[String: Any]]) ?? []).map { o in
+                CiPage.RunOutcome(
+                    pullRequestId: try XCTUnwrap(ciString(o["pullRequestId"])), identifier: try XCTUnwrap(ciString(o["identifier"])),
+                    title: try XCTUnwrap(ciString(o["title"])), text: try XCTUnwrap(ciString(o["text"])),
+                    glyph: try XCTUnwrap(ciString(o["glyph"])), tone: try XCTUnwrap(ciString(o["tone"])), jobId: ciString(o["jobId"])
+                )
+            }
         )
     }
 
@@ -477,6 +495,15 @@ final class CiRunViewTests: XCTestCase {
             let expected = try XCTUnwrap(CardJSON(any: item["tree"]))
             XCTAssertNil(diff(expected, tree), item["name"] as? String ?? "")
         }
+    }
+
+    func testQueueSpecimenIsTheFixtureCase() throws {
+        let item = try XCTUnwrap(try cases("ciRun").first { ($0["name"] as? String)?.hasPrefix("#EXP-2214 a merge queue run") == true })
+        XCTAssertEqual(CiRunView.queueSpecimenModel, try model(try XCTUnwrap(item["model"] as? [String: Any])))
+        XCTAssertEqual(CiRunView.queueSpecimenSelected, ciString(item["selected"]))
+        XCTAssertEqual(CiRunView.queueSpecimenLog, ciString(item["log"]))
+        XCTAssertEqual(CiRunView.queueSpecimenNow, ciString(item["now"]))
+        XCTAssertEqual(CiRunView.ciRunTitle(CiRunView.queueSpecimenModel), "Testing #210")
     }
 
     func testHeaderAndTitle() throws {

@@ -20,6 +20,8 @@ public enum CiRunView {
         public static let openExternal = "ci-open-external"
         /// The ⋯ Menu; payload `value` = rerunAll | openExternal.
         public static let menu = "ci-run-menu"
+        /// #EXP-2214: a What happened row opens its pull request.
+        public static let openPr = "ci-open-pr"
     }
 
     /// The run page's input (web `CiRunModel`): the synced rows.
@@ -32,8 +34,16 @@ public enum CiRunView {
         /// The author's name (the users row of createdByUserId), when known.
         public let author: String?
         public let jobs: [CiRun.Job]
+        /// #EXP-2214 (ci-page.json `runContext`): why the run exists: its
+        /// kind (a Badge first in the strip), a merge queue run's batch title
+        /// and What happened to each of its PRs. nil = none drawn.
+        public let context: CiPage.RunContext?
 
-        public init(run: CiRun.Run, repository: String?, pullRequest: CiRun.PullRequest?, author: String?, jobs: [CiRun.Job]) {
+        public init(
+            run: CiRun.Run, repository: String?, pullRequest: CiRun.PullRequest?, author: String?, jobs: [CiRun.Job],
+            context: CiPage.RunContext? = nil
+        ) {
+            self.context = context
             self.run = run
             self.repository = repository
             self.pullRequest = pullRequest
@@ -48,8 +58,34 @@ public enum CiRunView {
         author: CiRun.specimenAuthor, jobs: CiRun.specimenJobs
     )
 
+    /// #EXP-2214 (ci-run-view.json "a merge queue run" case, ci-page.json
+    /// `scenario` run r87): a red merge queue run of #210, its test (linux)
+    /// job selected. Capture only (the `ci-run-queue` specimen).
+    public static let queueSpecimenModel = Model(
+        run: CiRun.Run(
+            id: "r87", number: 87, name: "gate", state: "failure", error: nil, sha: "000005700000570000057000005700000570000057",
+            startedAt: "2026-11-27T08:50:00.000Z", completedAt: "2026-11-27T08:58:00.000Z", ref: "exp-train/train-87",
+            createdAt: "2026-11-27T08:50:00.000Z"
+        ),
+        repository: "acme/engine", pullRequest: nil, author: nil,
+        jobs: [
+            CiRun.Job(
+                id: "j87-a", check: "typecheck", position: 0, status: "completed", conclusion: "success", runnerLabel: "mint",
+                startedAt: "2026-11-27T08:50:10.000Z", completedAt: "2026-11-27T08:52:00.000Z"
+            ),
+            CiRun.Job(
+                id: "j87-b", check: "test (linux)", position: 1, status: "completed", conclusion: "failure", runnerLabel: "mint",
+                startedAt: "2026-11-27T08:50:10.000Z", completedAt: "2026-11-27T08:58:00.000Z"
+            ),
+        ],
+        context: CiPage.specimen.runs.first { $0.id == "r87" }.map { CiPage.runContext($0, CiPage.specimen) }
+    )
+    public static let queueSpecimenSelected = "j87-b"
+    public static let queueSpecimenLog = "▸ Unit tests\nAssertionError: expected 'starter' to be 'shared'\n##[error]exited with code 1\n"
+    public static let queueSpecimenNow = "2026-11-27T10:30:00.000Z"
+
     /// The run's title (ci-page.json's row rule, without the train batch).
-    public static func ciRunTitle(_ model: Model) -> String { model.run.title ?? model.run.name }
+    public static func ciRunTitle(_ model: Model) -> String { model.run.title ?? model.context?.title ?? model.run.name }
 
     /// The platform header on phones: `name #n` over the repository.
     public static func ciRunHeader(_ model: Model) -> (title: String, subtitle: String?) {
@@ -199,7 +235,9 @@ public enum CiRunView {
         let chips = node(
             ids.chips, "Stack",
             props: ["direction": .string("horizontal"), "gap": .string("xs"), "align": .string("center"), "wrap": .bool(true)],
-            children: CiRun.chips(run: run, jobs: model.jobs, pullRequest: model.pullRequest, author: model.author, now: now).map { chip in
+            children: (model.context.map { context in
+                [node("\(ids.chips).kind", "Badge", props: ["text": .string(context.badge), "variant": .string("outline")])]
+            } ?? []) + CiRun.chips(run: run, jobs: model.jobs, pullRequest: model.pullRequest, author: model.author, now: now).map { chip in
                 var props: [String: CardJSON] = ["label": .string(chip.label)]
                 if let icon = chip.icon { props["icon"] = .string(icon) }
                 if let dot = chip.dot { props["dot"] = .string(dot) }
@@ -254,6 +292,27 @@ public enum CiRunView {
                 ? stack("ci-run-bar", "vertical", "sm", "stretch", [chips] + (buttons.isEmpty ? [] : [actionsNode]))
                 : node("ci-run-bar", "Toolbar", children: [chips], extra: buttons.isEmpty ? [:] : ["slots": .object(["trailing": actionsNode])]),
         ]
+        let outcome = model.context?.outcome ?? []
+        if !outcome.isEmpty {
+            var props: [String: CardJSON] = ["title": .string(CiPage.Copy.Queue.whatHappened)]
+            if let caption = model.context?.caption, !caption.isEmpty { props["caption"] = .string(caption) }
+            children.append(node("ci-run-outcome", "Section", props: props, children: outcome.map { row in
+                let id = "ci-run-outcome.\(row.pullRequestId)"
+                var slots: [String: CardJSON] = [
+                    "leading": node("\(id).glyph", "Icon", props: ["name": .string(row.glyph), "tone": .string(row.tone), "size": .string("sm")]),
+                ]
+                if let job = row.jobId {
+                    slots["trailing"] = node("\(id).log", "Button", props: [
+                        "label": .string(CiPage.Copy.Queue.openLog), "icon": .string("file-text"), "variant": .string("outline"), "size": .string("sm"),
+                    ], extra: on("press", Events.select, context: ["job": .string(job)]))
+                }
+                var extra = on("press", Events.openPr, context: ["pr": .string(row.pullRequestId)])
+                extra["slots"] = .object(slots)
+                return node(id, "Row", props: [
+                    "identifier": .string(row.identifier), "title": .string(row.title), "subtitle": .string(row.text), "pressable": .bool(true),
+                ], extra: extra)
+            }))
+        }
         if let error = run.error {
             children.append(node("ci-run-error", "Alert", props: [
                 "type": .string("error"), "title": .string(CiRun.Copy.pipelineError), "message": .string(error),

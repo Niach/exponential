@@ -625,6 +625,19 @@ public final class SyncManager: @unchecked Sendable {
             type: RepositoryEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
+        // #EXP-2214: the merge queue's runs and history, member-only by team
+        // (40th and 41st shapes): the CI page's Merge queue tab and the run
+        // page's What happened.
+        tasks.append(makeShapeTask(
+            name: "merge-trains", path: "/api/shapes/merge-trains", table: "merge_trains",
+            type: MergeTrainEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        tasks.append(makeShapeTask(
+            name: "merge-train-events", path: "/api/shapes/merge-train-events", table: "merge_train_events",
+            type: MergeTrainEventEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
 
         lock.withLock { pipelines[accountId] = tasks }
     }
