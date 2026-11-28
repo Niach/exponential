@@ -1360,3 +1360,53 @@ describe(`fixtures/interactions-round1.json menuOpen`, () => {
     })
   }
 })
+
+// #EDE-264 / #EDE-270 eventArgs: an action's relative paths read the event's
+// payload first (a Menu `select`'s {value} in a host function's args, a
+// `set`'s value, the event's context), then the scope; a Toggle with only
+// `on.change` presses and each press runs its function with the new state.
+interface EventArgsCase {
+  name: string
+  surface: string
+  data: Record<string, unknown>
+  on: Record<string, unknown>
+  steps: (`pick` | `press`)[]
+  pressable?: boolean
+  calls: { name: string; args: Record<string, unknown> }[]
+  events: { name: string; context: Record<string, unknown> }[]
+  after?: Record<string, unknown>
+}
+const eventArgsFixture = (fixture as unknown as { eventArgs: { surfaces: Record<string, NestedNode>; cases: EventArgsCase[] } }).eventArgs
+
+function EventArgsSurface({ initial, data, onState, host }: { initial: NestedNode; data: Record<string, unknown>; onState: (s: SurfaceState) => void; host: HostPlugin }) {
+  const surface = useSurface({ surfaceId: `ea`, data: structuredClone(data), initial })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="ea" host={host} />
+}
+
+describe(`fixtures/interactions-round1.json eventArgs`, () => {
+  for (const c of eventArgsFixture.cases) {
+    it(`eventArgs: ${c.name}`, async () => {
+      let state!: SurfaceState
+      const calls: { name: string; args: Record<string, unknown> }[] = []
+      const events: { name: string; context: unknown }[] = []
+      const initial = structuredClone(eventArgsFixture.surfaces[c.surface]!) as NestedNode & { children: NestedNode[] }
+      initial.children[0]!.on = c.on as NonNullable<NestedNode[`on`]>
+      const host: HostPlugin = { onAction: (e) => void events.push({ name: e.name, context: e.context }), onFunctionCall: (call) => void calls.push({ name: call.name, args: call.args }) }
+      const { container } = render(<EventArgsSurface initial={initial} data={c.data} onState={(s) => (state = s)} host={host} />)
+      const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+      await settle()
+      if (c.pressable) expect(container.querySelector(`[data-xui-id="t"]`)?.closest(`button`), `${c.name}: a button`).not.toBeNull()
+      for (const step of c.steps) {
+        if (step === `pick`) await act(async () => void fireEvent.click(document.querySelector(`[data-xui-overlay="Menu"]`)!.querySelector(`[role="menuitem"]`)!))
+        else await act(async () => void fireEvent.click(container.querySelector(`[data-xui-id="t"]`)!.closest(`button`)!))
+        await settle()
+      }
+      expect(calls, `${c.name}: calls`).toEqual(c.calls)
+      expect(events, `${c.name}: events`).toEqual(c.events)
+      for (const [k, v] of Object.entries(c.after ?? {})) expect((state.data as Record<string, unknown>)[k], `${c.name}: /${k}`).toEqual(v)
+    })
+  }
+})

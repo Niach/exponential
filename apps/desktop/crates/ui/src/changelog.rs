@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-28-genui-event-args",
+    date: "2026-11-28",
+    title: "Menus and toggles in agent views answer right",
+    summary: "A pick in a menu now reaches the agent's or the desktop's function with the item you picked, and a toggle with only a change action responds to a click on every platform.",
+    body: r##"- **Menus pass your pick**: a menu whose item runs a function hands it the item you picked instead of nothing.
+- **Toggles respond**: a toggle that only reacts to a change now takes the click on the desktop app, iOS and Android, like on the web.
+- **Voice tray Mute is a toggle again**: in Exponential Desktop's Voice tray, Mute stays pressed while you are muted."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_389: ChangelogEntry = ChangelogEntry {
     id: "2026-11-28-quiet-check-ins",
     date: "2026-11-28",
     title: "Quiet check-ins stay quiet",
