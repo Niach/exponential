@@ -29,13 +29,13 @@ struct UpdateRequiredView: View {
                 Spacer().frame(height: 20)
 
                 Text("Update required")
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.exp(size: 28, weight: .bold))
                     .foregroundStyle(.white)
 
                 Spacer().frame(height: 8)
 
                 Text(bodyText)
-                    .font(.body)
+                    .font(.expBody)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
                 Spacer().frame(height: 24)
@@ -76,7 +76,7 @@ struct UpdateRequiredView: View {
             // Staging ships via TestFlight, which has no direct in-app update
             // deep link — point the user there in words.
             Text("Update the app via TestFlight")
-                .font(.body.weight(.medium))
+                .font(.expBody.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
@@ -101,7 +101,7 @@ struct UpdateRequiredView: View {
             showRemoveConfirm = true
         } label: {
             Text("Remove this server")
-                .font(.body.weight(.medium))
+                .font(.expBody.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)

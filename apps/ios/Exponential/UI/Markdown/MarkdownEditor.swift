@@ -231,7 +231,7 @@ struct MarkdownEditor: View {
                     // once, until the next pick (FEED-79: input, 13pt rose).
                     if let mediaError, !isReadOnly {
                         Text(mediaError)
-                            .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                            .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                             .foregroundStyle(DesignTokens.Semantic.red)
                             .padding(.top, 4)
                     }
@@ -1549,7 +1549,7 @@ private struct BlockImageView: View {
                     VStack(spacing: 6) {
                         AppIcon(AppIcons.uiRefresh, size: 24)
                         Text("Tap to retry")
-                            .font(.caption)
+                            .font(.expCaption)
                     }
                     .foregroundStyle(.white.opacity(0.6))
                 }
@@ -1571,7 +1571,7 @@ private struct BlockImageView: View {
     private var uploadingOverlay: some View {
         HStack(spacing: 6) {
             ProgressView().tint(.white).controlSize(.small)
-            Text("Uploading…").font(.caption).foregroundStyle(.white)
+            Text("Uploading…").font(.expCaption).foregroundStyle(.white)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -1589,7 +1589,7 @@ private struct BlockImageView: View {
                 Text(reason == .storageFull
                     ? "Team storage is full. Tap to retry"
                     : "Upload failed. Tap to retry")
-                    .font(.caption)
+                    .font(.expCaption)
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 10)

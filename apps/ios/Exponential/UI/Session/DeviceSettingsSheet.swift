@@ -831,11 +831,11 @@ struct DeviceSettingsSheet: View {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(device.version.map { "v\($0)" } ?? "Version unknown")
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.primary))
                     if outdated, let latest {
                         Text("Update available: v\(latest)")
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(DesignTokens.Semantic.yellow)
                     }
                 }
@@ -862,7 +862,7 @@ struct DeviceSettingsSheet: View {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
                 Text("Updating…")
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         } else if device.isOnline, outdated {
@@ -914,7 +914,7 @@ struct DeviceSettingsSheet: View {
                     Text("Remove device")
                     Spacer(minLength: 0)
                 }
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(DesignTokens.Palette.destructive)
                 // .plain hit-tests opaque pixels only — the whole row taps.
                 .contentShape(Rectangle())

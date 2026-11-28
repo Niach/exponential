@@ -76,7 +76,7 @@ struct EditedFilesCard: View {
             AppIcon(AppIcons.codingDiff, size: 11)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text(view.title)
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .foregroundStyle(.white)
             Spacer(minLength: 0)
         }
@@ -102,7 +102,7 @@ struct EditedFilesCard: View {
     /// The publisher's own dropped-line count, ×4 (`AgentFeed`'s note).
     private func truncationNote(_ lines: Int) -> some View {
         Text(AgentFeed.diffTruncationNote(lines))
-            .font(.caption2)
+            .font(.expCaption2)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -116,7 +116,7 @@ struct EditedFilesCard: View {
         } label: {
             HStack(spacing: 6) {
                 Text(label)
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Spacer(minLength: 0)
             }

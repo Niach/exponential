@@ -91,19 +91,19 @@ struct ResultSection<Thumbnail: View, Surface: View>: View {
             VStack(alignment: .leading, spacing: CGFloat(ResultsTab.Tab.Tile.textGap)) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(result.title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.expSubheadline.weight(.semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text(result.age)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(DesignTokens.Palette.mutedForeground)
                         .fixedSize()
                 }
                 if let description = result.description {
                     Text(description)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(DesignTokens.Palette.mutedForeground)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -152,7 +152,7 @@ struct ResultThumbnail<Bytes: View>: View {
             .clipShape(shape)
             .overlay(shape.strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
             Text(text)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
                 .lineLimit(1)
                 .truncationMode(.tail)

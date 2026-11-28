@@ -198,7 +198,7 @@ struct PickerSectionHeading: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: DesignTokens.Typography.Size.xs, weight: .medium))
+            .font(.exp(size: DesignTokens.Typography.Size.xs, weight: .medium))
             .foregroundStyle(DesignTokens.Palette.mutedForeground)
             .lineLimit(1)
             .frame(height: DesignTokens.Typography.LineHeight.xs)
@@ -225,7 +225,7 @@ public struct FolderRowTrailing: View {
     public var body: some View {
         HStack(spacing: 8) {
             Text("\(count)")
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             AppIcon(open ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: AppIcon.Size.small)
@@ -1083,7 +1083,7 @@ public struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
                             .fixedSize()
                     }
                     Text(item.identifierSplit?.title ?? item.label)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(
                             .white.opacity(item.disabled ? TextOpacity.quaternary : TextOpacity.primary)
                         )
@@ -1091,7 +1091,7 @@ public struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
                 }
                 if let description = item.description, !description.isEmpty {
                     Text(description)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
                 }

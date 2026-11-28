@@ -153,13 +153,13 @@ struct IssueFilesSection: View {
                     Button("Retry") {
                         viewModel.retryUpload(pendingId: pending.id)
                     }
-                    .font(.caption)
+                    .font(.expCaption)
                     .buttonStyle(.plain)
                     .foregroundStyle(.white)
                     Button("Dismiss") {
                         viewModel.cancelPendingUpload(pendingId: pending.id)
                     }
-                    .font(.caption)
+                    .font(.expCaption)
                     .buttonStyle(.plain)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
@@ -215,7 +215,7 @@ struct IssueFilesHeader: View {
     var body: some View {
         HStack {
             Text("Files")
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .accessibilityIdentifier("issue-files-header")
             Spacer()
@@ -235,17 +235,17 @@ struct IssueFileRow<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
-                .font(.system(size: 15))
+                .font(.exp(size: 15))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.callout)
+                    .font(.expCallout)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(subtitle)
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(subtitleTint)
                     .lineLimit(2)
             }

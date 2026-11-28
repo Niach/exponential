@@ -101,7 +101,7 @@ struct DeviceLogins: View {
     /// YET is still working, one that reported NONE has nothing to run with.
     private var emptyLine: some View {
         Text(noAccount ? DevicesList.Copy.noAccount : DevicesList.Copy.checking)
-            .font(.caption)
+            .font(.expCaption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             .frame(height: DevicesList.Card.iconSize)
             .accessibilityIdentifier("device-logins-empty-\(device.deviceId)")
@@ -320,7 +320,7 @@ struct DeviceAccountPanel: View {
                 HStack(spacing: 2) {
                     // EXP-1627: the foreground colour at medium weight.
                     Text(name)
-                        .font(.subheadline.weight(.medium))
+                        .font(.expSubheadline.weight(.medium))
                         .foregroundStyle(DesignTokens.Palette.foreground)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -337,7 +337,7 @@ struct DeviceAccountPanel: View {
                 if plan != nil || pill != nil {
                     HStack(spacing: 8) {
                         Text(plan ?? "")
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -356,14 +356,14 @@ struct DeviceAccountPanel: View {
                 }
                 if let persisted {
                     Text(persisted)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("device-login-persisted")
                 }
                 if let status {
                     Text(status)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(DesignTokens.Semantic.yellow)
                         .lineLimit(1)
                         .accessibilityIdentifier("device-login-status")
@@ -417,14 +417,14 @@ struct DeviceCardHeader<Status: View, Trailing: View>: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(name)
-                        .font(.subheadline.weight(.medium))
+                        .font(.expSubheadline.weight(.medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .layoutPriority(-1)
                     if let version, !version.isEmpty {
                         Text("v\(version)")
-                            .font(.caption2)
+                            .font(.expCaption2)
                             .foregroundStyle(
                                 outdated
                                     ? DesignTokens.Semantic.yellow
@@ -462,7 +462,7 @@ struct DeviceOnlineStatus: View {
                 .frame(width: 6, height: 6)
             Text("Online")
         }
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 }
@@ -533,7 +533,7 @@ struct DeviceCardMenu: View {
         VStack(spacing: 0) {
             if let updateItem {
                 Text(updateItem.text)
-                    .font(.system(size: DesignTokens.Typography.Size.sm))
+                    .font(.exp(size: DesignTokens.Typography.Size.sm))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, GlassMenuTokens.itemHPadding)

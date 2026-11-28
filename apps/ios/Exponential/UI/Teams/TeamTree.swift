@@ -184,7 +184,7 @@ struct TeamTreeList: View {
                     nameField(row)
                 } else {
                     Text(title(row))
-                        .font(compact ? .system(size: 15) : .body)
+                        .font(compact ? .exp(size: 15) : .expBody)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
@@ -249,7 +249,7 @@ struct TeamTreeList: View {
             if !row.open {
                 CountBadge(badge(row))
                 Text("\(row.count)")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
@@ -311,7 +311,7 @@ struct TeamTreeList: View {
     /// Rename (and a new folder's name) in place: Return or leaving it saves.
     private func nameField(_ row: SidebarTree.PhoneRow) -> some View {
         TextField("", text: $draftName)
-            .font(compact ? .system(size: 15) : .body)
+            .font(compact ? .exp(size: 15) : .expBody)
             .foregroundStyle(.white)
             .focused($naming)
             .submitLabel(.done)

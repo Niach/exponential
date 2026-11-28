@@ -195,7 +195,7 @@ struct IssueDetailBottomBar: View {
             FloatingBarCapsule(accessibilityLabel: "Comment", action: expand) {
                 AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium, weight: .medium)
                 Text("Comment")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
             }
         } trailing: {
             trailingSlot
@@ -262,7 +262,7 @@ struct IssueDetailBottomBar: View {
             if let target = replyTarget {
                 HStack(spacing: 8) {
                     Text("Replying to \(target.authorName)")
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -311,7 +311,7 @@ struct IssueDetailBottomBar: View {
 
             if let attachmentError {
                 Text(attachmentError)
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)

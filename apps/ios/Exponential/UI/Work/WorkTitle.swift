@@ -45,7 +45,7 @@ struct WorkTitle: View {
 
     private var expandedTitle: some View {
         Text(text)
-            .font(.headline)
+            .font(.expHeadline)
             .foregroundStyle(.white)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -58,7 +58,7 @@ struct WorkTitle: View {
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
             Text(issueTitle)
-                .font(.subheadline.weight(.semibold))
+                .font(.expSubheadline.weight(.semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)

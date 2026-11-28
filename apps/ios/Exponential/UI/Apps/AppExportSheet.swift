@@ -30,7 +30,7 @@ struct AppExportSheet: View {
                 VStack(spacing: 0) {
                     if !records.isEmpty {
                         GlassToggleRow(AppExport.Copy.includeRecords, isOn: $includeRecords)
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .accessibilityIdentifier(AppExport.TestIds.records)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
@@ -258,7 +258,7 @@ struct AppImportStep: View {
                     InlinePickerRow {
                         HStack(spacing: 10) {
                             Text(upstream.name)
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -304,11 +304,11 @@ struct AppImportStep: View {
                             AgentRowIcon(icon: template.icon, color: template.color)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(template.name)
-                                    .font(.subheadline.weight(.medium))
+                                    .font(.expSubheadline.weight(.medium))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
                                 Text(template.description)
-                                    .font(.caption)
+                                    .font(.expCaption)
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                     .lineLimit(1)
                             }
@@ -325,7 +325,7 @@ struct AppImportStep: View {
             }
             .glassSection()
             GlassToggleRow(AppTemplates.Copy.includeRecords, isOn: $withRecords)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .disabled(picking != nil)
                 .accessibilityIdentifier(AppTemplates.TestIds.records)
                 .padding(.horizontal, 12)

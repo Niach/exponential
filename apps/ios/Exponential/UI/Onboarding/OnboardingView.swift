@@ -163,7 +163,7 @@ struct OnboardingView: View {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small).tint(.white.opacity(0.6))
                     Text("Checking your teams…")
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
                 .padding(.vertical, 32)
@@ -272,14 +272,14 @@ struct OnboardingView: View {
             Spacer().frame(height: 20)
 
             Text(OnboardingCopy.doneTitle)
-                .font(.system(size: 28, weight: .bold))
+                .font(.exp(size: 28, weight: .bold))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
             Spacer().frame(height: 12)
 
             Text(OnboardingCopy.doneBody)
-                .font(.body)
+                .font(.expBody)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .multilineTextAlignment(.center)
 
@@ -441,7 +441,7 @@ struct OnboardingStepHeader: View {
                 Spacer().frame(height: 12)
             }
             Text(title)
-                .font(.system(size: 24, weight: .bold))
+                .font(.exp(size: 24, weight: .bold))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
@@ -449,7 +449,7 @@ struct OnboardingStepHeader: View {
                 Spacer().frame(height: 8)
 
                 Text(subtitle)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .multilineTextAlignment(.center)
             }
@@ -526,7 +526,7 @@ struct OnboardingSignedInFooter: View {
                 .buttonStyle(.plain)
                 .fixedSize()
         }
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         .frame(maxWidth: .infinity)
     }

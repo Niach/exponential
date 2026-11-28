@@ -38,7 +38,7 @@ struct SyncDebugView: View {
                     .foregroundStyle(.red)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Sync stopped")
-                        .font(.caption.weight(.semibold))
+                        .font(.expCaption.weight(.semibold))
                         .foregroundStyle(.white)
                     Text(fatal)
                         .font(.expMono(.caption2))
@@ -55,7 +55,7 @@ struct SyncDebugView: View {
     private var shapesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Shapes")
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .padding(.horizontal, 4)
 
@@ -89,7 +89,7 @@ struct SyncDebugView: View {
 
                 if status.recoveryState == .recovering {
                     Text("recovering")
-                        .font(.caption2.weight(.medium))
+                        .font(.expCaption2.weight(.medium))
                         .foregroundStyle(.yellow.opacity(0.9))
                 }
 
@@ -104,7 +104,7 @@ struct SyncDebugView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
                 Text(status.isLive ? "live" : "init")
-                    .font(.caption2.weight(.medium))
+                    .font(.expCaption2.weight(.medium))
                     .foregroundStyle(status.isLive ? .green.opacity(0.8) : .orange.opacity(0.8))
 
                 Text("HTTP \(status.lastHttpStatus)")
@@ -116,7 +116,7 @@ struct SyncDebugView: View {
                 HStack(alignment: .top, spacing: 6) {
                     if status.isSchemaError {
                         Text("schema")
-                            .font(.caption2.weight(.semibold))
+                            .font(.expCaption2.weight(.semibold))
                             .foregroundStyle(.orange)
                     }
                     Text(message)
@@ -149,7 +149,7 @@ struct SyncDebugView: View {
                     AppIcon(AppIcons.settingsSync, size: AppIcon.Size.small)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     Text(resyncing ? "Resyncing…" : "Resync now")
-                        .font(.caption.weight(.medium))
+                        .font(.expCaption.weight(.medium))
                         .foregroundStyle(.white)
                     Spacer()
                 }
@@ -165,7 +165,7 @@ struct SyncDebugView: View {
     private var logSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Log")
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .padding(.horizontal, 4)
 

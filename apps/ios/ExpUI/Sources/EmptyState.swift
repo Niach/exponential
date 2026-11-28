@@ -29,7 +29,7 @@ public struct EmptyState<Actions: View>: View {
 
     private var sdkSize: EmptyStateSize { size == .page ? .page : .list }
     private static var fonts: EmptyStateFonts {
-        EmptyStateFonts(title: .headline, description: .subheadline, listTitle: .subheadline)
+        EmptyStateFonts(title: .expHeadline, description: .expSubheadline, listTitle: .expSubheadline)
     }
 
     @ViewBuilder

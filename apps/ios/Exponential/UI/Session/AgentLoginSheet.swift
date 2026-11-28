@@ -95,7 +95,7 @@ struct AgentLoginSheet: View {
                 link
                 if let codeResult {
                     Text(codeResult)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -136,7 +136,7 @@ struct AgentLoginSheet: View {
                 ProgressView().controlSize(.small).tint(.white)
             }
             Text(statusText)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -158,7 +158,7 @@ struct AgentLoginSheet: View {
     private var persistNote: some View {
         if target.longLived {
             Text(DevicesList.Copy.persistNote)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("agent-login-persist-note")
@@ -194,14 +194,14 @@ struct AgentLoginSheet: View {
                         codeEntry
                     }
                     Text(linkCaption(hasCode: parsed.code != nil, wantsCodeBack: wantsCodeBack))
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
                 // Not a link payload (an older build, a plain note): verbatim.
                 Text(result)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .fixedSize(horizontal: false, vertical: true)
             }

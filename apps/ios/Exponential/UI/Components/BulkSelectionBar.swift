@@ -29,7 +29,7 @@ struct BulkSelectionBar<Actions: View>: View {
             .accessibilityLabel("Clear selection")
 
             Text(count)
-                .font(.subheadline.weight(.semibold))
+                .font(.expSubheadline.weight(.semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .padding(.trailing, 2)

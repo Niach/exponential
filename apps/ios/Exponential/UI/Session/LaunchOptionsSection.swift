@@ -112,7 +112,7 @@ struct LaunchOptionsSection: View {
         if devices.isEmpty {
             Section {
                 Text(noDeviceNote)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.secondary)
             }
             .listRowBackground(glassFormRowFill)

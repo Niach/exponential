@@ -256,12 +256,12 @@ public struct ToastCard: View {
                 .foregroundStyle(item.kind.tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .fixedSize(horizontal: false, vertical: true)
                 if let description = item.description {
                     Text(description)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .fixedSize(horizontal: false, vertical: true)
                 }

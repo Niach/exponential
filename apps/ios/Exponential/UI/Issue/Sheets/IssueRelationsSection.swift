@@ -27,7 +27,7 @@ struct IssueRelationsSection: View {
             // The entry point sits on its trailing edge.
             HStack(spacing: 6) {
                 Text(IssueRelationsView.Copy.relations)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Spacer(minLength: 0)
                 GlassPill(
@@ -138,7 +138,7 @@ struct IssueRelationBand<Rows: View>: View {
                         withAnimation(motion.standard) { onToggleShowAll() }
                     } label: {
                         Text(moreLabel)
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .padding(.horizontal, 12)
                             .frame(

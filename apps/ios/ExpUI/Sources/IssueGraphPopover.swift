@@ -166,7 +166,7 @@ public struct IssueGraphPopover: View {
 
     private func note(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(.caption2)
+            .font(.expCaption2)
             .foregroundStyle(color)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

@@ -95,19 +95,19 @@ struct VoiceCallSurface: View {
             .accessibilityLabel(callee.name)
             .accessibilityValue(Self.stateWord(view))
             Text(callee.name)
-                .font(.title2.weight(.semibold))
+                .font(.expTitle2.weight(.semibold))
                 .foregroundStyle(DesignTokens.Palette.foreground)
                 .lineLimit(1)
                 .padding(.top, 20)
             status
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
                 .padding(.top, 4)
             // EXP-1857: the desktop that speaks while the call falls back,
             // a second status line in the status style.
             if let via = view.via {
                 Text(via)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(DesignTokens.Palette.mutedForeground)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -115,7 +115,7 @@ struct VoiceCallSurface: View {
                     .accessibilityIdentifier(VoiceCall.TestIds.via)
             }
             Text(view.caption)
-                .font(.body)
+                .font(.expBody)
                 .foregroundStyle(DesignTokens.Palette.foreground)
                 .multilineTextAlignment(.center)
                 .lineLimit(4)

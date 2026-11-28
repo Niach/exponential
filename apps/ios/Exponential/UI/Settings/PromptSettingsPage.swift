@@ -45,7 +45,7 @@ struct TeamPromptsSection: View {
                         AppIcon(ActionIconDisplay.iconName(for: prompt.icon), size: 16)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         Text(prompt.name)
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         Spacer(minLength: 8)
@@ -202,7 +202,7 @@ struct PromptSettingsPage: View {
                 }
                 if let error = nameError ?? (submitted && trimmedName.isEmpty ? "Enter a name" : nil) {
                     Text(error)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                 }
             }
@@ -215,7 +215,7 @@ struct PromptSettingsPage: View {
                 } else if loadFailed {
                     VStack(spacing: 12) {
                         Text("Prompt unavailable")
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
                             Task { await loadBody(retried: true) }
@@ -236,7 +236,7 @@ struct PromptSettingsPage: View {
                 }
                 if let bodyTooLong {
                     Text(bodyTooLong)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                 }
             }
@@ -273,7 +273,7 @@ struct PromptSettingsPage: View {
                             AppIcon(AppIcons.uiDelete, size: AppIcon.Size.medium)
                             Text("Delete prompt")
                         }
-                        .font(.subheadline.weight(.medium))
+                        .font(.expSubheadline.weight(.medium))
                         .foregroundStyle(DesignTokens.Semantic.red)
                     }
                     .accessibilityIdentifier("prompt-delete")

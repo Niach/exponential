@@ -61,6 +61,14 @@ public enum TextFonts {
         return set.faces[symbolsFamily] ?? []
     }()
 
+    /// The bundled Inter faces (`ExponentialUIPrimitives`' `InterFont`),
+    /// registered with the process once.
+    private static let bundledInterFaces: [Face] = {
+        var set = Set()
+        set.add(family: InterFont.family, files: InterFont.urls)
+        return set.faces[InterFont.family] ?? []
+    }()
+
     /// The faces `Inter Symbols` cascades to: the installed set's (the
     /// conformance harness loads the same files), else the bundled ones.
     static func symbolFaces() -> [Face] {
@@ -192,7 +200,10 @@ public enum TextFonts {
         lock.unlock()
         let probe = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: family] as CFDictionary)
         let found = (CTFontDescriptorCreateMatchingFontDescriptors(probe, Swift.Set([kCTFontFamilyNameAttribute as String]) as CFSet) as? [CTFontDescriptor]) ?? []
-        let list = found.filter { (CTFontDescriptorCopyAttribute($0, kCTFontFamilyNameAttribute) as? String) == family }.map(face(of:))
+        var list = found.filter { (CTFontDescriptorCopyAttribute($0, kCTFontFamilyNameAttribute) as? String) == family }.map(face(of:))
+        // #EXP-2215: `Inter` (the exponential theme's sans) the host never
+        // registered = the faces `ExponentialUIPrimitives` bundles.
+        if list.isEmpty, family == InterFont.family { list = bundledInterFaces }
         lock.lock()
         familyCache[family] = list
         lock.unlock()

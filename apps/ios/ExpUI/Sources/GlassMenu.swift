@@ -172,13 +172,13 @@ public struct GlassMenuItemLabel: View {
             // The tokens' small type (14pt, web `text-sm`, Android labelLarge),
             // not `.subheadline` (15pt).
             Text(title)
-                .font(.system(size: DesignTokens.Typography.Size.sm))
+                .font(.exp(size: DesignTokens.Typography.Size.sm))
                 .foregroundStyle(titleColor)
                 .lineLimit(1)
             Spacer(minLength: 0)
             if let value, !value.isEmpty {
                 Text(value)
-                    .font(.system(size: DesignTokens.Typography.Size.sm))
+                    .font(.exp(size: DesignTokens.Typography.Size.sm))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(enabled ? TextOpacity.tertiary : TextOpacity.quaternary))
                     .lineLimit(1)

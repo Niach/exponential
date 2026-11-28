@@ -174,7 +174,7 @@ struct AssistantDeviceRow: View {
         )
         if space.waiting(boundId: draft.deviceId) {
             Text(MemberSpace.Copy.waiting)
-                .font(.system(size: DesignTokens.Typography.Size.sm))
+                .font(.exp(size: DesignTokens.Typography.Size.sm))
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("assistant-space-waiting")

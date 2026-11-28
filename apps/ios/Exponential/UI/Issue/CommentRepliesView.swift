@@ -235,7 +235,7 @@ struct CommentRepliesView: View {
             HStack {
                 // EXP-1676: web's `Activity (N)`: the drawn events + every comment.
                 Text(activityTitle)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .accessibilityIdentifier("comment-replies-header")
                 Spacer()
@@ -341,7 +341,7 @@ struct CommentRepliesView: View {
             marker: { eventDot }
         ) {
             Text("\(who) \(tail)")
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
     }
@@ -824,7 +824,7 @@ private struct RegularCommentRow: View {
             }
             Button(action: onReply) {
                 Text("Leave a reply…")
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 6)
@@ -959,14 +959,14 @@ private struct CommentCardContent: View {
                 // muted caption beside it — the same weights web, desktop and
                 // Android landed on.
                 Text(authorName)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(.white)
                 Text(relativeDate(comment.createdAt))
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 if comment.editedAt != nil {
                     Text("· edited")
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 // EXP-741: an agent posted it over MCP — the same caption on
@@ -975,7 +975,7 @@ private struct CommentCardContent: View {
                 // reporter, wear their caption in the same slot.
                 if let caption = sourceCaption {
                     Text("· \(caption)")
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 Spacer()
@@ -1038,7 +1038,7 @@ private struct CommentCardContent: View {
                 }
                 if let attachmentError {
                     Text(attachmentError)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                 }
 

@@ -123,7 +123,7 @@ struct GettingStartedListFace: View {
         GlassSectionBand(GettingStarted.title) {
             HStack(spacing: 12) {
                 Text(state.progress)
-                    .font(.subheadline.monospacedDigit())
+                    .font(.expSubheadline.monospacedDigit())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .fixedSize()
                 meter
@@ -172,7 +172,7 @@ struct GettingStartedRow: View {
                     AppIcon(Self.icon(entry.key), size: Self.iconSize)
                         .foregroundStyle(.white.opacity(entry.done ? TextOpacity.tertiary : TextOpacity.secondary))
                     Text(GettingStarted.title(entry.key))
-                        .font(.body)
+                        .font(.expBody)
                         .foregroundStyle(.white.opacity(entry.done ? TextOpacity.tertiary : TextOpacity.primary))
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -207,14 +207,14 @@ struct GettingStartedRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(GettingStarted.title(entry.key))
-                        .font(.body.weight(.medium))
+                        .font(.expBody.weight(.medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     GlassPill(GettingStarted.nextLabel)
                 }
                 Text(GettingStarted.why(entry.key))
-                    .font(.system(size: 13))
+                    .font(.exp(size: 13))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .fixedSize(horizontal: false, vertical: true)
                 // EXP-1676: web's `Button size="sm"`, the text button's shape.

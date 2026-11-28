@@ -116,13 +116,13 @@ struct InboxListContent: View {
                             .lineLimit(1)
                     }
                     Text(group.issue.title)
-                        .font(.subheadline.weight(unread ? .semibold : .regular))
+                        .font(.expSubheadline.weight(unread ? .semibold : .regular))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
                 if let latest = group.latest {
                     Text(latest.title)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(1)
                 }
@@ -133,7 +133,7 @@ struct InboxListContent: View {
             HStack(spacing: 6) {
                 if let latest = group.latest {
                     Text(relativeDate(latest.createdAt))
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 if unread {
@@ -167,19 +167,19 @@ struct InboxListContent: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(n.title)
-                        .font(.subheadline.weight(unread ? .semibold : .regular))
+                        .font(.expSubheadline.weight(unread ? .semibold : .regular))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     if let teamName = entry.teamName, viewModel.hasMultipleTeams {
                         Text(teamName)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                     }
                 }
                 if let body = n.body, !body.isEmpty {
                     Text(body)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(2)
                 }
@@ -189,7 +189,7 @@ struct InboxListContent: View {
 
             HStack(spacing: 6) {
                 Text(relativeDate(n.createdAt))
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 if unread {
                     Circle()
@@ -224,19 +224,19 @@ struct InboxListContent: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(n.title)
-                        .font(.subheadline.weight(unread ? .semibold : .regular))
+                        .font(.expSubheadline.weight(unread ? .semibold : .regular))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     if let teamName = entry.teamName, viewModel.hasMultipleTeams {
                         Text(teamName)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                     }
                 }
                 if let body = n.body, !body.isEmpty {
                     Text(body)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(2)
                 }
@@ -246,7 +246,7 @@ struct InboxListContent: View {
 
             HStack(spacing: 6) {
                 Text(relativeDate(n.createdAt))
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 if unread {
                     Circle()

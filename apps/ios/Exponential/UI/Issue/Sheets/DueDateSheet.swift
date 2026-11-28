@@ -38,7 +38,7 @@ struct DueDateSheet: View {
                         HStack(spacing: 8) {
                             AppIcon(AppIcons.uiClear, size: AppIcon.Size.medium)
                             Text("Clear due date")
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                             Spacer(minLength: 0)
                         }
                         .foregroundStyle(DesignTokens.Semantic.red)

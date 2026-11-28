@@ -52,7 +52,10 @@ var products: [Product] = [
     .library(name: "ExponentialUIPrimitives", targets: ["ExponentialUIPrimitives"]),
 ]
 var targets: [Target] = [
-    .target(name: "ExponentialUIPrimitives"),
+    // #EXP-2215: `Resources/Fonts` = Inter 400/500/600/700 (the files
+    // apps/desktop/assets/fonts ships, SIL OFL 1.1: OFL-Inter.txt beside
+    // them), the one copy genUI's `Inter` and the app's text both use.
+    .target(name: "ExponentialUIPrimitives", resources: [.copy("Resources/Fonts")]),
     .testTarget(name: "ExponentialUIPrimitivesTests", dependencies: ["ExponentialUIPrimitives"]),
 ]
 

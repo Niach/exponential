@@ -439,7 +439,7 @@ struct TabletSidebar: View {
             glyph()
                 .frame(width: 20, height: 20)
             Text(title)
-                .font(.system(size: 15, weight: bold ? .semibold : .regular))
+                .font(.exp(size: 15, weight: bold ? .semibold : .regular))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Spacer(minLength: 4)
@@ -489,12 +489,12 @@ struct TabletSidebar: View {
                 )
                 VStack(alignment: .leading, spacing: 0) {
                     Text(name)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.exp(size: 14, weight: .medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     if let email = account?.userEmail, email != name {
                         Text(email)
-                            .font(.system(size: 12))
+                            .font(.exp(size: 12))
                             .foregroundStyle(DesignTokens.Palette.mutedForeground)
                             .lineLimit(1)
                     }

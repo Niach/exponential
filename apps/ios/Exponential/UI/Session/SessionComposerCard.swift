@@ -233,7 +233,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
             }
             if let imageError = draft.steerImageError {
                 Text(imageError)
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)

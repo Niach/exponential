@@ -199,17 +199,17 @@ struct SearchView: View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.primary))
                     .lineLimit(1)
                 subtitle(row)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Text(row.trailing)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)

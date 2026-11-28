@@ -150,7 +150,7 @@ struct BoardPageView: View {
                     chipCount(option).map { count in
                         AnyView(
                             Text("\(count)")
-                                .font(.subheadline.weight(.medium).monospacedDigit())
+                                .font(.expSubheadline.weight(.medium).monospacedDigit())
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .lineLimit(1)
                         )

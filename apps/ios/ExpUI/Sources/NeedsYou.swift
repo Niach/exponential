@@ -120,18 +120,18 @@ struct NeedsYouRowView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(row.title)
-                        .font(.subheadline.weight(.medium))
+                        .font(.expSubheadline.weight(.medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
                     Text(row.age)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(DesignTokens.Palette.mutedForeground)
                         .fixedSize()
                 }
                 Text(row.meta.isEmpty ? row.chat : "\(row.chat) · \(row.meta)")
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(DesignTokens.Palette.mutedForeground)
                     .lineLimit(1)
                     .truncationMode(.tail)

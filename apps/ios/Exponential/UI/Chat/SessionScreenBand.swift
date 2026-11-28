@@ -189,7 +189,7 @@ struct SessionScreenTabs: View {
                 entry(id)?.count.map { count in
                     AnyView(
                         Text("\(count)")
-                            .font(.subheadline.weight(.medium).monospacedDigit())
+                            .font(.expSubheadline.weight(.medium).monospacedDigit())
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                     )
@@ -343,7 +343,7 @@ struct SessionScreenItemPage<Content: View>: View {
                     } else {
                         ChatHeader {
                             Text(title)
-                                .font(.system(size: CGFloat(Chats.Shell.ChatHeader.title), weight: .semibold))
+                                .font(.exp(size: CGFloat(Chats.Shell.ChatHeader.title), weight: .semibold))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                                 .truncationMode(.tail)

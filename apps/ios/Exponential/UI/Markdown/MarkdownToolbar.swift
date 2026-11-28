@@ -280,7 +280,7 @@ final class MarkdownToolbar: UIInputView {
         field.layer.cornerRadius = 8
         field.textColor = .white
         field.tintColor = MarkdownStyle.linkColor
-        field.font = .systemFont(ofSize: 15)
+        field.font = .inter(size: 15)
         field.attributedPlaceholder = NSAttributedString(
             string: "https://",
             attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.35)]

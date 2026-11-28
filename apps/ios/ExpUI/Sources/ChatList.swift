@@ -116,7 +116,7 @@ public struct ChatRowView<Lead: View>: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(spacing: CGFloat(Chats.Shell.markGap)) {
                         Text(title)
-                            .font(.body.weight(unread ? .semibold : .medium))
+                            .font(.expBody.weight(unread ? .semibold : .medium))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -127,7 +127,7 @@ public struct ChatRowView<Lead: View>: View {
                         CountBadge(count: needsYouCount, tone: .attention)
                     } else {
                         Text(time)
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .monospacedDigit()
                             .foregroundStyle(timeColor)
                             .fixedSize()
@@ -136,7 +136,7 @@ public struct ChatRowView<Lead: View>: View {
                 if let preview {
                 HStack(alignment: .center, spacing: 8) {
                     previewText(preview)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .lineLimit(2)
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -146,7 +146,7 @@ public struct ChatRowView<Lead: View>: View {
                                 AppIcon(wordIcon, size: 13)
                             }
                             Text(word)
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
@@ -267,7 +267,7 @@ public struct ChatSectionHeader: View {
 
     public var body: some View {
         Text(title)
-            .font(.system(size: DesignTokens.Typography.Size.xs, weight: .medium))
+            .font(.exp(size: DesignTokens.Typography.Size.xs, weight: .medium))
             .foregroundStyle(DesignTokens.Palette.mutedForeground)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 8)

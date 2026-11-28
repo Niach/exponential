@@ -121,7 +121,7 @@ struct DiffFileCard: View {
                 // EXP-916: the call settled without a patch — the contract's
                 // own word for that row, in the danger tint.
                 Text("failed")
-                    .font((compact ? Font.caption2 : Font.caption))
+                    .font((compact ? Font.expCaption2 : Font.expCaption))
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
         }

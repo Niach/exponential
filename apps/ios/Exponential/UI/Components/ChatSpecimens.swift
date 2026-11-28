@@ -208,7 +208,7 @@ struct ChatListSpecimens: View {
 
 private func specimenCaption(_ text: String) -> some View {
     Text(text)
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         .padding(.horizontal, 16)
 }
@@ -782,7 +782,7 @@ struct ChatMenuSpecimens: View {
     private func captioned(_ text: String, @ViewBuilder _ content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(text)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             content()
         }
@@ -803,7 +803,7 @@ struct ChatMenuSpecimens: View {
     private func menu(_ title: String, _ entries: [ChatMenuSheet.Entry]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.headline)
+                .font(.expHeadline)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
@@ -1006,7 +1006,7 @@ private struct PlanPageSpecimen: View {
             VStack(spacing: 0) {
                 ChatHeader {
                     Text(PlanPage.Copy.title)
-                        .font(.system(size: CGFloat(Chats.Shell.ChatHeader.title), weight: .semibold))
+                        .font(.exp(size: CGFloat(Chats.Shell.ChatHeader.title), weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 } trailing: {
@@ -1182,7 +1182,7 @@ struct ElicitationCardSpecimens: View {
     private func section(_ title: String, _ row: SessionChatRow?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             if let row {
                 ChatAskCard(row: row)

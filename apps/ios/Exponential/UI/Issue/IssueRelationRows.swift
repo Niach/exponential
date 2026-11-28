@@ -47,7 +47,7 @@ struct IssueRelationListRow: View {
                 .lineLimit(1)
                 .fixedSize()
             Text(row.title)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 // A closed counterpart (done, cancelled, duplicate)
                 // recedes (web `!row.open && text-foreground/60`).
                 .foregroundStyle(.white.opacity(row.open ? 1 : 0.6))
@@ -155,7 +155,7 @@ struct IssueParentLine: View {
             AppIcon(AppIcons.relationSubIssue, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text(IssueRelationsView.Copy.subIssueOf)
-                .font(.footnote)
+                .font(.expFootnote)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
                 .fixedSize()
@@ -236,7 +236,7 @@ struct IssueSubIssuesSection: View {
             HStack(spacing: 8) {
                 AppIcon(AppIcons.uiAdd, size: 14, weight: .medium)
                 Text(IssueRelationsView.Copy.addSubIssues)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))

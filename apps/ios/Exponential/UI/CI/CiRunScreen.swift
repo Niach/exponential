@@ -238,13 +238,13 @@ struct CiRunHeader: ViewModifier {
             content.detailHeaderTitle("\(header.title)|\(header.subtitle ?? "")") {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(header.title)
-                        .font(.headline)
+                        .font(.expHeadline)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if let subtitle = header.subtitle, !subtitle.isEmpty {
                         Text(subtitle)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .lineLimit(1)
                             .truncationMode(.tail)

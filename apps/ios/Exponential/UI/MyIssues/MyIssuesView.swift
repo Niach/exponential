@@ -179,7 +179,7 @@ struct MyIssuesListContent: View {
                     .frame(width: 16)
 
                 issueTitleText(issue.title, viaApp: issue.viaAppId.flatMap { vm.appNames[$0] })
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -207,7 +207,7 @@ struct MyIssuesListContent: View {
                         HStack(spacing: 3) {
                             AppIcon(AppIcons.uiDueDate, size: 11)
                             Text(formatDueDate(dueDate))
-                                .font(.caption)
+                                .font(.expCaption)
                                 .lineLimit(1)
                         }
                         .foregroundStyle(dueDateColor(dueDate))

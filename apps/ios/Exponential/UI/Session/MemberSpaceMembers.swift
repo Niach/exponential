@@ -58,7 +58,7 @@ struct MemberSpaceMembersSection: View {
                                     Text(MemberSpace.Copy.remove)
                                 }
                             }
-                            .font(.subheadline.weight(.medium))
+                            .font(.expSubheadline.weight(.medium))
                             .foregroundStyle(.white.opacity(model.removing == nil ? TextOpacity.primary : TextOpacity.quaternary))
                             .padding(.horizontal, 12)
                             .frame(minHeight: 32)

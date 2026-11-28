@@ -133,16 +133,16 @@ struct BlockMediaView: View {
     private func pendingAudioRow(_ pending: PendingImage) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "waveform")
-                .font(.system(size: 13))
+                .font(.exp(size: 13))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text(pending.filename)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.middle)
             if let durationMs = pending.durationMs {
                 Text(MediaDuration.format(ms: durationMs))
-                    .font(.caption2.monospacedDigit())
+                    .font(.expCaption2.monospacedDigit())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             Spacer(minLength: 0)
@@ -161,9 +161,9 @@ struct BlockMediaView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "link")
-                    .font(.system(size: 12))
+                    .font(.exp(size: 12))
                 Text(label.isEmpty ? url : label)
-                    .font(.body)
+                    .font(.expBody)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -176,7 +176,7 @@ struct BlockMediaView: View {
     private var uploadingOverlay: some View {
         HStack(spacing: 6) {
             ProgressView().tint(.white).controlSize(.small)
-            Text("Uploading…").font(.caption).foregroundStyle(.white)
+            Text("Uploading…").font(.expCaption).foregroundStyle(.white)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -191,7 +191,7 @@ struct BlockMediaView: View {
                 Text(reason == .storageFull
                     ? "Team storage is full. Tap to retry"
                     : "Upload failed. Tap to retry")
-                    .font(.caption)
+                    .font(.expCaption)
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 10)

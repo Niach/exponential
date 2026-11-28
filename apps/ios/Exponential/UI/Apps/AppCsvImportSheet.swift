@@ -99,7 +99,7 @@ struct AppCsvImportSheet: View {
                 }
                 if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, records.isEmpty {
                     Text(AppRecords.CsvImport.Copy.noRows)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .padding(.horizontal, 4)
                 }
@@ -109,7 +109,7 @@ struct AppCsvImportSheet: View {
                 // FEED-79: invalid input = inline, never a toast.
                 if let error {
                     Text(error)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier(AppRecords.CsvImport.TestIds.error)
@@ -192,12 +192,12 @@ struct AppCsvImportSheet: View {
     private func label(_ name: String, required: Bool) -> some View {
         HStack(spacing: 6) {
             Text(name)
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             if !required {
                 Text(AppRecords.DataTab.Copy.optional)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }
@@ -230,7 +230,7 @@ struct AppCsvImportSheet: View {
             title: title
         ) {
             GlassPickerRowLabel(title, value: shown)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
         }
@@ -250,13 +250,13 @@ struct AppCsvImportSheet: View {
             }
             .glassSection()
             Text(AppRecords.csvSummary(records))
-                .font(.caption)
+                .font(.expCaption)
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.horizontal, 4)
             if tooMany {
                 Text(csvFill(AppRecords.CsvImport.Copy.tooMany, "{max}", String(AppRecords.CsvImport.maxRows)))
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
@@ -277,12 +277,12 @@ struct AppCsvImportSheet: View {
         let shown = AppRecords.CsvImport.issuesShown
         return VStack(alignment: .leading, spacing: 2) {
             Text(first.isEmpty ? AppRecords.DataTab.Copy.emptyTitle : first)
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(first.isEmpty ? Color.white.opacity(TextOpacity.secondary) : Color.white)
                 .lineLimit(1)
             if !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
             }

@@ -69,7 +69,7 @@ struct ChatSuggestionsCard: View {
                 onOpenSession: onOpenSession, onOpenIssue: onOpenIssue
             )
         }
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white)
         // N-12: ONE gray ×4: THE card composite under the card hairline.
         .background(GlassTokens.opaqueCardFill)
@@ -104,7 +104,7 @@ struct ChatSuggestionsSheet: View {
                 rowId: rowId, items: items, actions: actions,
                 onOpenSession: onOpenSession, onOpenIssue: onOpenIssue
             )
-            .font(.caption)
+            .font(.expCaption)
             .foregroundStyle(.white)
             // The rows pad themselves (web `px-1` + the rows' `px-3`).
             .padding(.horizontal, -12)

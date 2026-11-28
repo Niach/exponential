@@ -387,7 +387,7 @@ private struct TeamGeneralPage: View {
                 } else if promptLoadFailed {
                     VStack(spacing: 12) {
                         Text("Prompt unavailable")
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
                             Task { await loadPrompt(retried: true) }
@@ -402,7 +402,7 @@ private struct TeamGeneralPage: View {
                     .fill(GlassTokens.strokeCard)
                     .frame(height: GlassTokens.hairline)
                 Text(TeamPrompt.counter(prompt ?? ""))
-                    .font(.caption)
+                    .font(.expCaption)
                     .monospacedDigit()
                     .foregroundStyle(promptOver ? DesignTokens.Semantic.red : .white.opacity(TextOpacity.tertiary))
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -413,7 +413,7 @@ private struct TeamGeneralPage: View {
             .glassSection()
             if promptOver {
                 Text(TeamPrompt.tooLong(prompt ?? ""))
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .padding(.top, 4)
             }
@@ -615,7 +615,7 @@ private struct TeamGeneralPage: View {
 
             HStack(spacing: 12) {
                 Text("Permanently delete this team and all its data.")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 DestructiveButton("Delete team") { showDeleteTeam = true }
@@ -1125,7 +1125,7 @@ private struct SkillsSettingsPage: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(skill.name)
-                            .font(.subheadline.weight(.medium))
+                            .font(.expSubheadline.weight(.medium))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         if let pill = Skills.skillPill(builtin: skill.builtin, enabledByDefault: skill.enabledByDefault) {
@@ -1134,7 +1134,7 @@ private struct SkillsSettingsPage: View {
                     }
                     if !skill.description.isEmpty {
                         Text(skill.description)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                             .truncationMode(.tail)

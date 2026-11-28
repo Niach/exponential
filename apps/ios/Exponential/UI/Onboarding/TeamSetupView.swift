@@ -108,7 +108,7 @@ struct TeamSetupView: View {
             VStack(alignment: .leading, spacing: 12) {
                 fieldLabel(TeamSetupCopy.teamNameLabel)
                 GlassTextField("e.g. Acme Inc", text: $teamName)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .overlay { invalidBorder(createError != nil) }
 
                 if let createError {
@@ -133,7 +133,7 @@ struct TeamSetupView: View {
             VStack(alignment: .leading, spacing: 12) {
                 fieldLabel(TeamSetupCopy.inviteLinkLabel)
                 GlassTextField(TeamSetupCopy.invitePlaceholder, text: $inviteInput)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .overlay { invalidBorder(joinError != nil) }
@@ -156,7 +156,7 @@ struct TeamSetupView: View {
 
     private func fieldLabel(_ label: String) -> some View {
         Text(label)
-            .font(.subheadline.weight(.medium))
+            .font(.expSubheadline.weight(.medium))
             .foregroundStyle(.white)
     }
 
@@ -178,7 +178,7 @@ struct TeamSetupView: View {
                     AppIcon(AppIcons.uiBack, size: AppIcon.Size.small)
                     Text(TeamSetupCopy.back)
                 }
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.vertical, 12)
                 .contentShape(Rectangle())
@@ -253,7 +253,7 @@ struct TeamSetupView: View {
 
     private func inlineError(_ message: String) -> some View {
         Text(message)
-            .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+            .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
             .foregroundStyle(DesignTokens.Semantic.red)
     }
 

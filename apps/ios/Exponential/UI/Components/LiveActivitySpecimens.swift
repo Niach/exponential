@@ -81,7 +81,7 @@ struct LiveActivitySpecimens: View {
 
     private func label(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.exp(size: 13, weight: .semibold))
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
             .padding(.top, 4)
     }

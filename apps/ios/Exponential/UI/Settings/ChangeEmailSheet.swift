@@ -104,7 +104,7 @@ struct ChangeEmailSheet: View {
         GlassSheetChrome(title: "Change your email") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(description)
-                    .font(.footnote)
+                    .font(.expFootnote)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -132,7 +132,7 @@ struct ChangeEmailSheet: View {
                 // field (13pt rose + a red field border), never a toast.
                 if let error = model.error {
                     Text(error)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -202,7 +202,7 @@ struct ChangeEmailSheet: View {
 
     private func actionLink(_ label: String, action: @escaping () -> Void) -> some View {
         Button(label, action: action)
-            .font(.footnote)
+            .font(.expFootnote)
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
     }
 }

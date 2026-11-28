@@ -162,7 +162,7 @@ public struct GlassAlert<Content: View>: View {
         VStack(alignment: .leading, spacing: GlassAlertMetrics.sectionGap) {
             VStack(alignment: .leading, spacing: GlassAlertMetrics.itemGap) {
                 Text(title)
-                    .font(.system(
+                    .font(.exp(
                         size: DesignTokens.Typography.Size.lg,
                         weight: DesignTokens.Typography.Weight.semibold
                     ))
@@ -171,7 +171,7 @@ public struct GlassAlert<Content: View>: View {
                     .accessibilityIdentifier("glass-alert-title")
                 if let message {
                     Text(message)
-                        .font(.system(size: 15))
+                        .font(.exp(size: 15))
                         .foregroundStyle(DesignTokens.Palette.mutedForeground)
                         .accessibilityIdentifier("glass-alert-message")
                 }

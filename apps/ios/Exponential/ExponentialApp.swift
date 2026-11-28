@@ -22,6 +22,8 @@ struct ExponentialApp: App {
         AppIntentsHost.deps = dependencies
         MonitoringState.shared.setOrigins(dependencies.auth.accounts.map(\.instanceUrl))
         FirebaseApp.configure()
+        // #EXP-2215: Inter in the UIKit bars and fields too.
+        ExpAppearance.applyInter()
         // Heal installs whose shared URLCache holds poisoned Electric shape
         // snapshots (shape responses carry `cache-control: public` and older
         // builds fetched them through the default cache — a stale empty
@@ -39,6 +41,8 @@ struct ExponentialApp: App {
     var body: some Scene {
         WindowGroup {
             AppNavigator()
+                // #EXP-2215: every text without its own font is Inter.
+                .font(.expBody)
                 .environment(dependencies)
                 .onAppear { AppShortcutItems.deps = dependencies }
                 // #LOGS-2: follow the active server's monitoring config.

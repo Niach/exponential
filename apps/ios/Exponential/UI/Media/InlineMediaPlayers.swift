@@ -18,7 +18,7 @@ struct MediaDurationChip: View {
 
     var body: some View {
         Text(MediaDuration.format(ms: durationMs))
-            .font(.caption2.weight(.medium).monospacedDigit())
+            .font(.expCaption2.weight(.medium).monospacedDigit())
             .foregroundStyle(.white)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
@@ -32,7 +32,7 @@ struct MediaPlayGlyph: View {
 
     var body: some View {
         Image(systemName: "play.fill")
-            .font(.system(size: size * 0.42, weight: .semibold))
+            .font(.exp(size: size * 0.42, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background(.black.opacity(0.55), in: Circle())
@@ -118,7 +118,7 @@ struct InlineVideoPlayerView: View {
                         .overlay(alignment: .bottomLeading) {
                             if failed {
                                 Text("Couldn't play this video")
-                                    .font(.caption)
+                                    .font(.expCaption)
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
@@ -188,7 +188,7 @@ struct InlineAudioPlayerView: View {
                 controller.toggle()
             } label: {
                 Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.exp(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 32, height: 32)
                     .background(Color.white.opacity(0.12), in: Circle())
@@ -199,10 +199,10 @@ struct InlineAudioPlayerView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Image(systemName: "waveform")
-                        .font(.system(size: 11))
+                        .font(.exp(size: 11))
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     Text(label)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -219,7 +219,7 @@ struct InlineAudioPlayerView: View {
             }
 
             Text("\(MediaDuration.format(ms: controller.currentMs)) / \(MediaDuration.format(ms: totalMs))")
-                .font(.caption2.monospacedDigit())
+                .font(.expCaption2.monospacedDigit())
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
                 .fixedSize()

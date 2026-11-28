@@ -244,7 +244,7 @@ struct ChatHeaderTitle: View {
                 HStack(spacing: 6) {
                     HStack(spacing: CGFloat(Chats.Shell.markGap)) {
                         Text(title)
-                            .font(.system(size: CGFloat(Measures.title), weight: .semibold))
+                            .font(.exp(size: CGFloat(Measures.title), weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -253,7 +253,7 @@ struct ChatHeaderTitle: View {
                             .background(alignment: .leading) {
                                 // #EXP-2183: the title's intrinsic width, off screen.
                                 Text(title)
-                                    .font(.system(size: CGFloat(Measures.title), weight: .semibold))
+                                    .font(.exp(size: CGFloat(Measures.title), weight: .semibold))
                                     .lineLimit(1)
                                     .fixedSize()
                                     .headerWidth(HeaderFoldKey.title)
@@ -360,7 +360,7 @@ struct ChatHeaderSubtitle: View {
     var body: some View {
         if !text.isEmpty {
             Text(text)
-                .font(.system(size: CGFloat(Measures.subtitle)))
+                .font(.exp(size: CGFloat(Measures.subtitle)))
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .truncationMode(.tail)

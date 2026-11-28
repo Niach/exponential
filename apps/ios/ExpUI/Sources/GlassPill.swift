@@ -106,7 +106,7 @@ public enum GlassPillSize {
     }
 
     var font: Font {
-        self == .sm ? .caption.weight(.medium) : .subheadline.weight(.medium)
+        self == .sm ? .expCaption.weight(.medium) : .expSubheadline.weight(.medium)
     }
 
     /// #EXP-1629: the rung's font in JetBrains Mono (`GlassPill.mono()`).

@@ -101,7 +101,7 @@ struct AgentVoiceSection: View {
     /// THE invalid-input line (FEED-79, 13pt rose) under the group.
     private func errorLine(_ text: String, id: String) -> some View {
         Text(text)
-            .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+            .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
             .foregroundStyle(DesignTokens.Semantic.red)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier(id)

@@ -107,13 +107,13 @@ struct EditorAutocompleteMenu: View {
                     ForEach(Array(mentions.enumerated()), id: \.element.id) { index, member in
                         row(index) { onPickMention(member) } label: {
                             Text(member.name)
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                             Spacer(minLength: 8)
                             if member.email != member.name {
                                 Text(member.email)
-                                    .font(.caption)
+                                    .font(.expCaption)
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                     .lineLimit(1)
                             }
@@ -135,7 +135,7 @@ struct EditorAutocompleteMenu: View {
                                 .lineLimit(1)
                                 .layoutPriority(1)
                             Text(candidate.title)
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -146,7 +146,7 @@ struct EditorAutocompleteMenu: View {
                     ForEach(Array(emoji.enumerated()), id: \.element.id) { index, record in
                         row(index) { onPickEmoji(record) } label: {
                             Text(record.unicode)
-                                .font(.system(size: 18))
+                                .font(.exp(size: 18))
                                 .frame(width: 24)
                             Text(":\(record.shortcodes.first ?? record.label):")
                                 .font(.expMono(.caption))
@@ -154,7 +154,7 @@ struct EditorAutocompleteMenu: View {
                                 .lineLimit(1)
                                 .layoutPriority(1)
                             Text(record.label)
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .lineLimit(1)
                             Spacer(minLength: 0)

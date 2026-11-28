@@ -27,7 +27,7 @@ public enum MarkdownStyle {
     /// through `UIFontMetrics` so it keeps Dynamic Type.
     public nonisolated(unsafe) static let bodyFont: PlatformFont = {
         #if canImport(UIKit)
-        UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 14))
+        UIFontMetrics(forTextStyle: .body).scaledFont(for: .inter(size: 14))
         #else
         PlatformFont.systemFont(ofSize: 14)
         #endif
@@ -61,7 +61,7 @@ public enum MarkdownStyle {
     /// 13pt medium, scaled with Dynamic Type like the body it sits in.
     public static var mentionFont: PlatformFont {
         UIFontMetrics(forTextStyle: .body)
-            .scaledFont(for: PlatformFont.systemFont(ofSize: mentionFontSize, weight: .medium))
+            .scaledFont(for: PlatformFont.inter(size: mentionFontSize, weight: .medium))
     }
     /// The muted `#IDENT` identifier inside an issue chip (Linear look —
     /// Android's `MdStyle.ChipToken`, web's `--muted-foreground`). Mention
@@ -109,7 +109,7 @@ public enum MarkdownStyle {
         guard let bodySize else { return bodyFont }
         #if canImport(UIKit)
         return UIFontMetrics(forTextStyle: .body)
-            .scaledFont(for: PlatformFont.systemFont(ofSize: bodySize))
+            .scaledFont(for: PlatformFont.inter(size: bodySize))
         #else
         return PlatformFont.systemFont(ofSize: bodySize)
         #endif
@@ -154,7 +154,7 @@ public enum MarkdownStyle {
             // EXP-1676: web `.tiptap-content h1/h2/h3` (1.25rem, 1.1rem, 1rem).
             let document: [CGFloat] = [0, 20, 17.6, 16]
             let size = level >= 1 && level <= 3 ? document[level] : bodyFont.pointSize
-            return PlatformFont.systemFont(ofSize: size, weight: .semibold)
+            return PlatformFont.inter(size: size, weight: .semibold)
         }
         // EXP-1280 (plan-card.json `card.headingScale`, ×4): the display
         // render's h1 = 1.2 × its body at weight 600; the rest of the ladder
@@ -163,7 +163,7 @@ public enum MarkdownStyle {
         let size: CGFloat = level == 1
             ? bodySize * CGFloat(PlanCard.Card.headingScale)
             : (level >= 2 && level <= 6 ? sizes[level] * scale : bodySize)
-        let font = PlatformFont.systemFont(ofSize: size, weight: .semibold)
+        let font = PlatformFont.inter(size: size, weight: .semibold)
         #if canImport(UIKit)
         return UIFontMetrics(forTextStyle: .body).scaledFont(for: font)
         #else
@@ -237,7 +237,7 @@ public func expBoldFont(_ font: PlatformFont) -> PlatformFont {
     let descriptor = font.fontDescriptor
     var traits = descriptor.symbolicTraits
     traits.insert(.traitBold)
-    guard let newDescriptor = descriptor.withSymbolicTraits(traits) else { return font }
+    guard let newDescriptor = descriptor.withSymbolicTraits(traits) else { return expFont(traits: traits, size: font.pointSize) ?? font }
     return PlatformFont(descriptor: newDescriptor, size: font.pointSize)
 }
 
@@ -246,8 +246,20 @@ public func expItalicFont(_ font: PlatformFont) -> PlatformFont {
     let descriptor = font.fontDescriptor
     var traits = descriptor.symbolicTraits
     traits.insert(.traitItalic)
-    guard let newDescriptor = descriptor.withSymbolicTraits(traits) else { return font }
+    guard let newDescriptor = descriptor.withSymbolicTraits(traits) else { return expFont(traits: traits, size: font.pointSize) ?? font }
     return PlatformFont(descriptor: newDescriptor, size: font.pointSize)
+}
+
+/// #EXP-2215: a face with exactly `traits` at `size`: Inter's when the four
+/// bundled faces have it (bold or not), else the system font's (Inter ships
+/// no italic: an italic run reads in the system italic), so the serializer,
+/// which reads `*` / `**` off the traits, never loses a mark.
+public func expFont(traits: UIFontDescriptor.SymbolicTraits, size: CGFloat) -> PlatformFont? {
+    let marks = traits.intersection([.traitBold, .traitItalic])
+    if let inter = UIFont.inter(size: size).fontDescriptor.withSymbolicTraits(marks) {
+        return PlatformFont(descriptor: inter, size: size)
+    }
+    return PlatformFont.systemFont(ofSize: size).fontDescriptor.withSymbolicTraits(marks).map { PlatformFont(descriptor: $0, size: size) }
 }
 
 public func expFontHasBold(_ font: PlatformFont?) -> Bool {

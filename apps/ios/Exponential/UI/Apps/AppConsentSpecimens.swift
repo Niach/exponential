@@ -17,7 +17,7 @@ struct AppConsentSpecimens: View {
             AppBackground()
             VStack(alignment: .leading, spacing: 4) {
                 Text("Working hours")
-                    .font(.title2.weight(.semibold))
+                    .font(.expTitle2.weight(.semibold))
                 Text("October 2026")
                     .foregroundStyle(.secondary)
                 Spacer()

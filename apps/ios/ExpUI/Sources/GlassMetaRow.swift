@@ -69,7 +69,7 @@ public struct GlassMetaRow: View {
             // 6pt between the glyph and its value, 16/12 paddings.
             HStack(spacing: 6) {
                 Text(label)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
                 Spacer(minLength: 8)
@@ -82,7 +82,7 @@ public struct GlassMetaRow: View {
                 }
 
                 Text(value)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
             }

@@ -67,7 +67,7 @@ public struct GlassToggleRow<Leading: View>: View {
                                 .lineLimit(1)
                             if let description, !description.isEmpty {
                                 Text(description)
-                                    .font(.caption)
+                                    .font(.expCaption)
                                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             }
                         }
@@ -88,7 +88,7 @@ public struct GlassToggleRow<Leading: View>: View {
         case .pill:
             Toggle(isOn: $isOn) {
                 Text(title ?? "")
-                    .font(.caption.weight(.medium))
+                    .font(.expCaption.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
             }

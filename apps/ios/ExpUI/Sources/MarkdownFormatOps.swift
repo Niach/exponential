@@ -658,10 +658,10 @@ public enum MarkdownFormatOps {
         guard traits.contains(trait) else { return font }
         traits.remove(trait)
         // `withSymbolicTraits` returns nil for descriptors it cannot resolve;
-        // rebuilding a plain system font of the same size is the safe fallback
+        // rebuilding a plain face of the same size is the safe fallback
         // (the mark is gone either way, which is what the user asked for).
         guard let newDescriptor = descriptor.withSymbolicTraits(traits) else {
-            return PlatformFont.systemFont(ofSize: font.pointSize)
+            return expFont(traits: traits, size: font.pointSize) ?? .inter(size: font.pointSize)
         }
         return PlatformFont(descriptor: newDescriptor, size: font.pointSize)
     }

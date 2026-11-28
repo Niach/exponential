@@ -71,7 +71,7 @@ public struct InlineStatus: View {
         HStack(spacing: CGFloat(FeedbackStates.Inline.gap)) {
             if busy { InlineSpinner() }
             Text(word)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
         .accessibilityElement(children: .combine)

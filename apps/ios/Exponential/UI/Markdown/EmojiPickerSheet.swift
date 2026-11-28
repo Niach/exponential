@@ -112,7 +112,7 @@ struct EmojiPickerSheet: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.caption2.weight(.semibold))
+            .font(.expCaption2.weight(.semibold))
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 6)
@@ -127,7 +127,7 @@ struct EmojiPickerSheet: View {
             dismiss()
         } label: {
             Text(record.unicode)
-                .font(.system(size: 28))
+                .font(.exp(size: 28))
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }

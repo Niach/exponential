@@ -35,10 +35,10 @@ struct AboutView: View {
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Exponential")
-                    .font(.body)
+                    .font(.expBody)
                     .foregroundStyle(.white)
                 Text("Version \(AppConstants.appVersion)")
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             Spacer()
@@ -86,7 +86,7 @@ struct AboutView: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 22)
             Text(title)
-                .font(.body)
+                .font(.expBody)
                 .foregroundStyle(.white)
             Spacer()
             trailing()

@@ -24,7 +24,7 @@ struct ThirdPartyLicensesView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     Text("Exponential is built with open-source software. These licenses cover the components bundled in this build.")
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .padding(.horizontal, 4)
 
@@ -33,7 +33,7 @@ struct ThirdPartyLicensesView: View {
                         EmptyView()
                     case .missing:
                         Text("The bundled notices file is missing from this build.")
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.orange.opacity(0.85))
                             .padding(.horizontal, 4)
                     case .ready(let sections):
@@ -67,7 +67,7 @@ struct ThirdPartyLicensesView: View {
                 // it labels, so it needs full-white emphasis over the body and
                 // no header indent of its own.
                 Text(section.title)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(.white)
             }
             Text(section.body)

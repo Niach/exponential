@@ -113,7 +113,7 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
             if let title {
                 HStack(spacing: 12) {
                     Text(title)
-                        .font(.headline)
+                        .font(.expHeadline)
                         .foregroundStyle(.white)
                     Spacer(minLength: 0)
                     headerTrailing()

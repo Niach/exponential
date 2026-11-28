@@ -105,7 +105,7 @@ public struct ChipBox<Leading: View>: View {
             }
             if let title, !title.isEmpty {
                 Text(title)
-                    .font(.system(size: titleSize ?? pointSize, weight: .medium))
+                    .font(.exp(size: titleSize ?? pointSize, weight: .medium))
                     .foregroundStyle(titleColor)
                     .lineLimit(1)
                     .truncationMode(.tail)

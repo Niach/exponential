@@ -16,12 +16,12 @@ struct AskDismissedCard: View {
                 .foregroundStyle(WaitingCardTint.color(kind))
             HStack(spacing: 6) {
                 Text(WaitingCards.Copy.dismissed)
-                    .font(.caption.weight(.medium))
+                    .font(.expCaption.weight(.medium))
                     .lineLimit(1)
                     .fixedSize()
                 if !title.isEmpty {
                     Text(title)
-                        .font(.caption)
+                        .font(.expCaption)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -84,13 +84,13 @@ struct ChannelMessageRow<Lead: View, Content: View>: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(name)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.expSubheadline.weight(.semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if !time.isEmpty {
                         Text(time)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .fixedSize()
                     }
@@ -141,14 +141,14 @@ struct SupersededPlanCard: View {
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 4) {
                 Text(AskDock.Copy.planReady)
-                    .font(.caption.weight(.medium))
+                    .font(.expCaption.weight(.medium))
                     .foregroundStyle(DesignTokens.Palette.primary)
                     .lineLimit(1)
                 HStack(alignment: .top, spacing: 6) {
                     AppIcon(AppIcons.uiClose, size: 12)
                         .padding(.top, 2)
                     Text(Chats.Copy.superseded)
-                        .font(.caption)
+                        .font(.expCaption)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -428,7 +428,7 @@ struct ChatAskCard: View {
                 }
                 if !missing.isEmpty {
                     Text(ElicitationCard.Copy.missing)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(DesignTokens.Semantic.yellow)
                 }
             }
@@ -478,12 +478,12 @@ struct PlanConversationRow: View {
                     AppIcon(card.decision == "approved" ? AppIcons.uiCheck : AppIcons.codingPlan, size: 16)
                         .foregroundStyle(glyphTint)
                     Text(PlanPage.planRowLabel(card.plan))
-                        .font(.subheadline.weight(.medium))
+                        .font(.expSubheadline.weight(.medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Text(status)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(waiting ? DesignTokens.Semantic.yellow : DesignTokens.Palette.mutedForeground)
                         .lineLimit(1)
                         .fixedSize()
@@ -551,7 +551,7 @@ private struct ElicitationGhostButton: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(1)
                 .fixedSize()

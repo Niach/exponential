@@ -31,7 +31,9 @@ final class ShareViewController: UIViewController {
         // Cancel pill) is dark like the app's window; `preferredColorScheme`
         // alone leaves the bar on the host app's light scheme.
         overrideUserInterfaceStyle = .dark
-        let host = UIHostingController(rootView: root)
+        // #EXP-2215: Inter, as in the app.
+        ExpAppearance.applyInter()
+        let host = UIHostingController(rootView: root.font(.expBody))
         host.overrideUserInterfaceStyle = .dark
         addChild(host)
         host.view.translatesAutoresizingMaskIntoConstraints = false

@@ -69,7 +69,7 @@ struct SkillSettingsPage: View {
                     .padding(.vertical, 12)
                     GlassDivider()
                     Text(skill?.description ?? "")
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)
@@ -106,7 +106,7 @@ struct SkillSettingsPage: View {
         } else if loadFailed {
             VStack(spacing: 12) {
                 Text("Skill unavailable")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
                     Task { await loadBody(retried: true) }

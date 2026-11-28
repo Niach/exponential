@@ -79,11 +79,11 @@ struct InviteAcceptView: View {
                 VStack(spacing: 16) {
                     VStack(spacing: 4) {
                         Text(preview.teamName)
-                            .font(.title3.weight(.semibold))
+                            .font(.expTitle3.weight(.semibold))
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
                         Text("Role: \(preview.role)")
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
                     .padding(16)
@@ -132,7 +132,7 @@ struct InviteAcceptView: View {
                 .accessibilityHidden(true)
                 .padding(.bottom, 8)
             Text(loadError == nil ? "Team invite" : "Invalid invite")
-                .font(.headline)
+                .font(.expHeadline)
                 .foregroundStyle(.white)
             if let loadError {
                 subtitle(loadError)
@@ -145,7 +145,7 @@ struct InviteAcceptView: View {
 
     private func subtitle(_ text: String) -> some View {
         Text(text)
-            .font(.subheadline)
+            .font(.expSubheadline)
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
             .multilineTextAlignment(.center)
     }
@@ -154,7 +154,7 @@ struct InviteAcceptView: View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
             Text(text)
-                .font(.subheadline)
+                .font(.expSubheadline)
         }
         .foregroundStyle(tone)
         .frame(maxWidth: .infinity, alignment: .leading)

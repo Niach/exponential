@@ -23,7 +23,7 @@ public struct TranscriptDividerPill: View {
         HStack(spacing: 8) {
             AppIcon(icon, size: 14)
             Text(text)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .lineLimit(1)
         }
         .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -106,7 +106,7 @@ public struct MessageBubble<Content: View, Footer: View>: View {
 
     private func nameLine(_ name: String) -> some View {
         Text(name)
-            .font(.system(size: TranscriptGrouping.Layout.nameSize, weight: .medium))
+            .font(.exp(size: TranscriptGrouping.Layout.nameSize, weight: .medium))
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
             .lineLimit(1)
             .truncationMode(.tail)
@@ -185,7 +185,7 @@ public struct BubbleTime: View {
 
     public var body: some View {
         Text(text)
-            .font(.caption2)
+            .font(.expCaption2)
             .monospacedDigit()
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
@@ -465,7 +465,7 @@ public struct SurfaceCardFrame<Content: View>: View {
         VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
             if let title, !title.isEmpty {
                 Text(title)
-                    .font(.caption2.weight(.medium))
+                    .font(.expCaption2.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
             }

@@ -55,7 +55,7 @@ public struct AccountLimitBars: View {
             ForEach(AccountLimitLabels.bars(limits), id: \.label) { bar in
                 HStack(spacing: 6) {
                     Text(bar.label)
-                        .font(.system(size: 10))
+                        .font(.exp(size: 10))
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
                         .frame(width: 32, alignment: .leading)
@@ -119,13 +119,13 @@ public struct AccountPickerTriggerLabel: View {
             }
             if let option {
                 Text(option.email)
-                    .font(style == .rowValue ? .body : .caption.weight(.medium))
+                    .font(style == .rowValue ? .expBody : .expCaption.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let badge = option.health.badgeLabel {
                     Text(badge)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
                 }
@@ -154,13 +154,13 @@ struct AccountOptionBody: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(option.email)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let badge = option.health.badgeLabel {
                     Text(badge)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
                 }

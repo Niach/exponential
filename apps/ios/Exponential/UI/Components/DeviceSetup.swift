@@ -80,7 +80,7 @@ struct DeviceSetup: View {
                         AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.medium)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         Text(OnboardingCopy.devicesNone)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
@@ -156,14 +156,14 @@ struct DeviceSetup: View {
                 AppIcon(AppIcons.uiServer, size: AppIcon.Size.medium)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text(GettingStartedCopy.serverTitle)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 8)
             }
 
             Text(GettingStartedCopy.serverDescription)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -174,7 +174,7 @@ struct DeviceSetup: View {
 
             if codeApproved {
                 Text(DeviceSetupCopy.approved)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("device-code-approved")
@@ -221,7 +221,7 @@ struct DeviceSetup: View {
     private var codeEntry: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(DeviceSetupCopy.codeLabel)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -257,7 +257,7 @@ struct DeviceSetup: View {
 
             if let codeError {
                 Text(DeviceSetupCopy.message(codeError))
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -278,14 +278,14 @@ struct DeviceSetup: View {
                 AppIcon(icon, size: AppIcon.Size.medium)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text(title)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 8)
             }
 
             Text(description)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -344,7 +344,7 @@ struct DeviceSetup: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(deviceName(device))
-                        .font(.subheadline.weight(.medium))
+                        .font(.expSubheadline.weight(.medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     statusLine(device)
@@ -396,7 +396,7 @@ struct DeviceSetup: View {
                 Text("Offline")
             }
         }
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 

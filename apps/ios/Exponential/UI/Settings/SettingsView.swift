@@ -17,12 +17,12 @@ struct SettingsLinkRow<Leading: View>: View {
                 .fixedGlyphs()
                 .frame(width: 22)
             Text(title)
-                .font(.body)
+                .font(.expBody)
                 .foregroundStyle(.white)
             Spacer()
             if let count {
                 Text("\(count)")
-                    .font(.body)
+                    .font(.expBody)
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
@@ -148,12 +148,12 @@ struct SettingsTabView: View {
                     )
                     VStack(alignment: .leading, spacing: 2) {
                         Text(name)
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.exp(size: 17, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         if let email = account.userEmail, email != name {
                             Text(email)
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .lineLimit(1)
                         }
@@ -247,15 +247,15 @@ struct SettingsTabView: View {
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.displayName)
-                    .font(.body)
+                    .font(.expBody)
                     .foregroundStyle(.white)
                 if account.token == nil {
                     Text("Signed out")
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.orange.opacity(0.85))
                 } else if let email = account.userEmail, !email.isEmpty {
                     Text(email)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }

@@ -223,7 +223,7 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
         HStack(spacing: 6) {
             leading
             Text(title)
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 // 85% is the band's own rung — the shared one web
                 // (`text-foreground/85`) and desktop (`foreground.opacity(0.85)`)
                 // paint their band label with, brighter than a plain header's
@@ -232,7 +232,7 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
                 .lineLimit(1)
             if let count {
                 Text("\(count)")
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .accessibilityIdentifier("section-band-count")
             }

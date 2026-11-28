@@ -59,7 +59,7 @@ struct SearchListTextField: UIViewRepresentable {
         let field = Field()
         field.delegate = context.coordinator
         field.text = text
-        field.font = .preferredFont(forTextStyle: .body)
+        field.font = .exp(.body)
         field.textColor = .white
         field.tintColor = .white
         field.returnKeyType = .search
@@ -247,13 +247,13 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
         if let sections {
             if let count = sections.count {
                 Text("\(count)")
-                    .font(.caption.monospacedDigit())
+                    .font(.expCaption.monospacedDigit())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .accessibilityIdentifier(SearchList.TestId.count)
             }
         } else if hasQuery, !loading {
             Text("\(visible.count)")
-                .font(.caption.monospacedDigit())
+                .font(.expCaption.monospacedDigit())
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .accessibilityIdentifier(SearchList.TestId.count)
         }

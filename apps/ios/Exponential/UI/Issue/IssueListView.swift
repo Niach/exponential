@@ -295,7 +295,7 @@ struct IssueListView: View {
                 .controlSize(.small)
                 .tint(.white)
             Text("Syncing team…")
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer()
         }
@@ -431,7 +431,7 @@ struct IssueListView: View {
                 // stack gap to dead space — titles were ellipsizing three
                 // words early with a visible gap to their right.
                 issueTitleText(issue.title, viaApp: issue.viaAppId.flatMap { vm.appNames[$0] })
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -467,7 +467,7 @@ struct IssueListView: View {
                         HStack(spacing: 3) {
                             AppIcon(AppIcons.uiDueDate, size: 11)
                             Text(formatDueDate(dueDate))
-                                .font(.caption)
+                                .font(.expCaption)
                                 .lineLimit(1)
                         }
                         .foregroundStyle(dueDateColor(dueDate))
@@ -662,7 +662,7 @@ struct IssueListView: View {
                             AppIcon(AppIcons.actionRun, size: AppIcon.Size.small)
                         }
                         Text("Start coding")
-                            .font(.subheadline.weight(.medium))
+                            .font(.expSubheadline.weight(.medium))
                     }
                     .foregroundStyle(DesignTokens.Palette.primaryForeground)
                     .padding(.horizontal, 12)

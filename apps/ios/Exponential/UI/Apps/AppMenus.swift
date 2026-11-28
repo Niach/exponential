@@ -63,7 +63,7 @@ struct AppMenuSheet: View {
                         GlassMenuItemLabel(Apps.Copy.Menu.versions, icon: AppIcons.uiHistory)
                             .overlay(alignment: .trailing) {
                                 Text(String(versionsCount))
-                                    .font(.system(size: DesignTokens.Typography.Size.sm).monospacedDigit())
+                                    .font(.exp(size: DesignTokens.Typography.Size.sm).monospacedDigit())
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                     .padding(.trailing, GlassMenuTokens.itemHPadding)
                             }

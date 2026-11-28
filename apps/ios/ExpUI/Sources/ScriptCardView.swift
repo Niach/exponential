@@ -70,7 +70,7 @@ public struct ScriptCardView: View {
                 .padding(.bottom, 6)
             }
         }
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white)
         .background(GlassTokens.fillRow)
         .clipShape(RoundedRectangle(cornerRadius: GlassTokens.groupRadius))

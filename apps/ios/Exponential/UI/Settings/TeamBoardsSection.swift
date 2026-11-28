@@ -72,7 +72,7 @@ struct TeamBoardsSection: View {
                         // ellipsized the board it belongs to.
                         VStack(alignment: .leading, spacing: 4) {
                             Text(board.name)
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                             if let repositoryId = board.repositoryId, !repositoryId.isEmpty {
@@ -253,14 +253,14 @@ private struct PutAwayRow<Pills: View>: View {
                     .foregroundStyle(Color(hex: color ?? "#888888") ?? .gray)
             }
             Text(text)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Spacer(minLength: 8)
             // Web's put-away row: the caption and the pills keep their
             // natural width (`shrink-0`); only the name truncates.
             Text(caption)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
@@ -417,7 +417,7 @@ private struct BoardRepoLine: View {
                         resolving: resolving
                     )
                 )
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
             }
@@ -471,7 +471,7 @@ private struct ChangeRepositorySheet: View {
         GlassSheetChrome(title: "Default repository") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(board.name)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
                 BoardRepoField(

@@ -66,7 +66,7 @@ struct SessionResultPictureTile: View {
                 ])
             }
             Text(caption)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -129,7 +129,7 @@ private struct SessionResultTile: View {
                 }
                 .allowsHitTesting(false)
                 Text("Tall")
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)

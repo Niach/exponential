@@ -181,7 +181,7 @@ struct StepUpSheet: View {
         GlassSheetChrome(title: StepUp.title) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(method.description(email: model.email))
-                    .font(.footnote)
+                    .font(.expFootnote)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -209,7 +209,7 @@ struct StepUpSheet: View {
                 // FEED-79: the refused proof is INPUT, inline under its field.
                 if let error = model.state.error {
                     Text(error)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("step-up-error")
@@ -259,7 +259,7 @@ struct StepUpSheet: View {
 
     private func actionLink(_ label: String, action: @escaping () -> Void) -> some View {
         Button(label, action: action)
-            .font(.footnote)
+            .font(.expFootnote)
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
     }
 }

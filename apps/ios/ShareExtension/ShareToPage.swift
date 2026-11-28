@@ -105,7 +105,7 @@ struct ShareToPage: View {
                 }
             }
             Text(ShareTargets.Copy.images(images.count))
-                .font(.footnote)
+                .font(.expFootnote)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer(minLength: 0)
         }
@@ -124,7 +124,7 @@ struct ShareToPage: View {
                         .foregroundStyle(.white)
                     if let subtitle {
                         Text(subtitle)
-                            .font(.footnote)
+                            .font(.expFootnote)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
                 }

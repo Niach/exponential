@@ -210,19 +210,19 @@ struct AppDataTab: View {
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(first.isEmpty ? Color.white.opacity(TextOpacity.secondary) : Color.white)
                     .lineLimit(1)
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Text(RelativeTime.long(wire: row.updatedAt))
-                .font(.caption)
+                .font(.expCaption)
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Button {
@@ -460,7 +460,7 @@ struct AppRecordFormSheet: View {
                 // FEED-79: invalid input = inline under the form, never a toast.
                 if let error {
                     Text(error)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier(AppRecords.DataTab.TestIds.error)
@@ -493,12 +493,12 @@ struct AppRecordFormSheet: View {
     private func label(_ name: String, required: Bool) -> some View {
         HStack(spacing: 6) {
             Text(name)
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             if !required {
                 Text(AppRecords.DataTab.Copy.optional)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }
@@ -544,7 +544,7 @@ struct AppRecordFormSheet: View {
                     text: textBinding(field.name),
                     accessibilityIdentifier: identifier
                 )
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .keyboardType(field.control == .number ? .numbersAndPunctuation : .default)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(field.control != .text)
@@ -618,7 +618,7 @@ struct AppRecordFormSheet: View {
                 AppIcon(AppIcons.uiChevronRight, size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
         }
@@ -656,11 +656,11 @@ struct AppRecordFormSheet: View {
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.label)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(when.isEmpty ? row.who : "\(row.who)\(UserMessageCaption.separator)\(when)")
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
             }
@@ -669,7 +669,7 @@ struct AppRecordFormSheet: View {
                 // The small ghost button (the Versions sheet's Preview).
                 Button { restore(recordId: recordId, eventId: row.id) } label: {
                     Text(AppRecords.History.Copy.restore)
-                        .font(.caption.weight(.medium))
+                        .font(.expCaption.weight(.medium))
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
                         .frame(height: GlassPillTokens.heightSm)

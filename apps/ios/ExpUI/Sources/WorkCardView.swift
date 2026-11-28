@@ -67,7 +67,7 @@ public struct WorkCardView<Footer: View>: View {
             }
             footer
         }
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white)
         .background(GlassTokens.opaqueCardFill)
         .clipShape(RoundedRectangle(cornerRadius: GlassTokens.groupRadius))
@@ -432,7 +432,7 @@ public struct SessionCardView: View {
                 content
             }
         }
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white)
         .background(bare ? Color.clear : GlassTokens.opaqueCardFill)
         .clipShape(RoundedRectangle(cornerRadius: bare ? 0 : GlassTokens.groupRadius))

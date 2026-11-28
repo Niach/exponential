@@ -51,7 +51,7 @@ struct DiffFileList<Header: View>: View {
                     }
                     if let truncatedLines, truncatedLines > 0 {
                         Text(AgentFeed.diffTruncationNote(truncatedLines))
-                            .font(.caption2)
+                            .font(.expCaption2)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .padding(.horizontal, 4)
                     }

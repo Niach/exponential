@@ -338,7 +338,7 @@ struct ChatWaitingButton: View {
                 .foregroundStyle(WaitingCardTint.color(.question))
                 if !compact {
                     Text("\(count)")
-                        .font(.subheadline.monospacedDigit())
+                        .font(.expSubheadline.monospacedDigit())
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
@@ -379,13 +379,13 @@ struct ChatWaitingSheet: View {
                         style: .check,
                         content: AnyView(HStack(spacing: 8) {
                             Text(chip.label)
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white.opacity(TextOpacity.primary))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text(AskDock.label(chip.kind))
-                                .font(.caption)
+                                .font(.expCaption)
                                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
                                 .lineLimit(1)
                                 .fixedSize()

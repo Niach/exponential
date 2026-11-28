@@ -95,7 +95,7 @@ struct DeviceReadinessView: View {
                         GlassSectionBand(group.label) {
                             if let tag = group.tag {
                                 Text(tag)
-                                    .font(.caption)
+                                    .font(.expCaption)
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -156,7 +156,7 @@ struct DeviceReadinessView: View {
     /// in the band's own row rhythm (`rowView`).
     private func computerUseModelRow(_ selection: Binding<String>) -> some View {
         ModelPickerRow("Computer use model", selection: selection)
-        .font(.subheadline)
+        .font(.expSubheadline)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(minHeight: 40)
@@ -168,7 +168,7 @@ struct DeviceReadinessView: View {
     /// band and rhythm; the value reads the picked option's label.
     private func workScreenRow(_ selection: Binding<String?>) -> some View {
         WorkScreenPickerRow(selection: selection, options: workScreenOptions)
-        .font(.subheadline)
+        .font(.expSubheadline)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(minHeight: 40)
@@ -183,7 +183,7 @@ struct DeviceReadinessView: View {
             description: row.detail,
             isOn: computerUse ?? .constant(row.switchOn)
         )
-        .font(.subheadline)
+        .font(.expSubheadline)
         .disabled(computerUse == nil)
         .accessibilityIdentifier("device-computer-use")
     }
@@ -195,7 +195,7 @@ struct DeviceReadinessView: View {
                     .foregroundStyle(Self.color(row.tone))
             }
             Text(row.label)
-                .font(showsActions ? .subheadline : .caption)
+                .font(showsActions ? .expSubheadline : .expCaption)
                 .foregroundStyle(.white.opacity(showsActions ? TextOpacity.primary : TextOpacity.secondary))
                 .lineLimit(1)
             Spacer(minLength: 8)
@@ -204,7 +204,7 @@ struct DeviceReadinessView: View {
             // otherwise.
             if let detail = row.detail {
                 Text(detail)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(Self.detailColor(row.tone))
                     .lineLimit(1)
                     .truncationMode(.middle)

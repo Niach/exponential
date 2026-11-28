@@ -116,7 +116,7 @@ struct PlanPageBody: View {
         switch block {
         case let .title(text):
             Text(text)
-                .font(.system(size: CGFloat(PlanPage.Layout.titleSize), weight: .semibold))
+                .font(.exp(size: CGFloat(PlanPage.Layout.titleSize), weight: .semibold))
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.trailing, hasOutline ? 32 : 0)
@@ -233,7 +233,7 @@ struct PlanQuestionsPanel: View {
             PlanFloatingPanel(maxHeight: maxHeight) {
                 if question != nil, count > 1 {
                     Text(PlanCard.Copy.stepLabel(step: page + 1, count: count))
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(DesignTokens.Palette.mutedForeground)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .padding(.bottom, 12)
@@ -270,7 +270,7 @@ struct PlanQuestionsPanel: View {
                         )
                         if busy {
                             Text(PlanCard.Copy.answering)
-                                .font(.caption)
+                                .font(.expCaption)
                                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
                         }
                     }
@@ -293,12 +293,12 @@ struct PlanQuestionsPanel: View {
                             : DesignTokens.Palette.mutedForeground)
                         .padding(.top, 2)
                     Text(AskDock.planDecisionLabel(decision: decision, fresh: card.fresh))
-                        .font(.caption.weight(.medium))
+                        .font(.expCaption.weight(.medium))
                         .foregroundStyle(.white)
                 }
                 if let feedback = card.feedback, !feedback.isEmpty {
                     Text(PlanCard.Copy.feedbackLine(feedback))
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .accessibilityIdentifier(PlanCard.TestIds.feedback)
                 }

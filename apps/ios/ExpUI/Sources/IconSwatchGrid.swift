@@ -59,7 +59,7 @@ public struct IconSwatchGrid: View {
             }
             if allowsNone, !selection.isEmpty {
                 Button("No icon") { selection = "" }
-                    .font(.caption)
+                    .font(.expCaption)
                     .buttonStyle(.plain)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
