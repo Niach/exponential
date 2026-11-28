@@ -1069,7 +1069,7 @@ fn document(ink: &Ink, chrome: &Chrome, page: bool) -> Value {
     ];
     let github = json!({"id": "github", "component": "Box", "visible": path("/pane/isGithub"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": children});
     let height = if page { json!("auto") } else { json!("100%") };
-    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": height, "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": [kinds(page), github, ecode_form(page)]})
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": height, "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": [kinds(page), github, if page { ecode_page_form(ink) } else { ecode_form(page) }]})
 }
 
 /// #EXP-1616: a repo name of `[A-Za-z0-9._-]` (repo-page.json `copy.add.name`).
@@ -1123,6 +1123,45 @@ fn ecode_form(page: bool) -> Value {
     json!({"id": "ecode", "component": "Form", "visible": path("/pane/isEcode"), "props": {"name": "ecode", "busy": path("/pane/ecodeBusy")},
         "on": {"submit": {"event": {"name": "create"}}},
         "children": [{"id": "ecode_fields", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "gap": 12}, "children": fields}]})
+}
+
+/// #EXP-2171 (repo-page.json NEW › REPOSITORY): the page's hosted form as
+/// THE form group (New board's, web `GlassGroup`, the phones' glass section):
+/// row Inputs, the row Select and Switch rows between hairlines, then the
+/// end-aligned Cancel / Create repository.
+fn ecode_page_form(ink: &Ink) -> Value {
+    let all = &domain::repo_page::REPO_PAGE.copy;
+    let copy = &all.add;
+    let branches: Vec<Value> = ["main", "master", "develop"].iter().map(|branch| json!({"label": branch, "value": branch})).collect();
+    let input = |id: &str, label: &str, name: &str, placeholder: &str, field: &str, visible: Value| {
+        json!({"id": id, "component": "Input", "visible": visible, "props": {"variant": "row", "label": label, "name": name, "placeholder": placeholder, "value": path(&format!("/pane/{field}"))},
+            "on": {"change": {"event": {"name": "edit", "context": {"field": id}}}}})
+    };
+    let switch_row = |id: &str, label: &str, name: &str, field: &str, event: &str| {
+        let mut text = ink.text(&format!("{id}_label"), json!(label), SM, &ink.foreground);
+        text["style"]["flexGrow"] = json!(1);
+        text["style"]["minWidth"] = json!(0);
+        ink.shell(id, false, json!(true), vec![text,
+            json!({"id": format!("{id}_switch"), "component": "Switch", "props": {"label": "", "name": name, "checked": path(&format!("/pane/{field}"))}, "on": {"change": {"event": {"name": event}}}})])
+    };
+    let group = ink.group("ecode_group", vec![
+        input("ecode_name", &copy.name, "name", "app", "ecodeName", json!(true)),
+        ink.divider("ecode_description_rule", json!(true)),
+        input("ecode_description", &all.new.description, "description", "", "ecodeDescription", json!(true)),
+        ink.divider("ecode_branch_rule", json!(true)),
+        json!({"id": "ecode_branch", "component": "Select", "props": {"triggerVariant": "row", "label": copy.default_branch, "name": "defaultBranch", "value": path("/pane/ecodeBranch"), "options": branches},
+            "on": {"change": {"event": {"name": "ecode_branch"}}}}),
+        ink.divider("ecode_ci_rule", json!(true)),
+        switch_row("ecode_ci_row", &all.new.run_ci, "runCi", "ecodeRunCi", "ecode_run_ci"),
+        ink.divider("ecode_mirror_rule", json!(true)),
+        switch_row("ecode_mirror_row", &copy.mirror, "mirror", "ecodeMirror", "ecode_mirror"),
+        ink.divider("ecode_mirror_url_rule", path("/pane/ecodeMirror")),
+        input("ecode_mirror_url", &copy.mirror_url, "mirrorUrl", "https://github.com/owner/name", "ecodeMirrorUrl", path("/pane/ecodeMirror")),
+    ]);
+    let actions = json!({"id": "ecode_actions", "component": "FormActions", "props": {"submit": all.new.create, "cancel": true}, "on": {"cancel": {"event": {"name": "cancel"}}}});
+    json!({"id": "ecode", "component": "Form", "visible": path("/pane/isEcode"), "props": {"name": "ecode", "busy": path("/pane/ecodeBusy")},
+        "on": {"submit": {"event": {"name": "create"}}},
+        "children": [{"id": "ecode_fields", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "gap": 12}, "children": [group, actions]}]})
 }
 
 #[cfg(test)]

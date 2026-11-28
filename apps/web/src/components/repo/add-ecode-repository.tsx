@@ -3,6 +3,7 @@ import { REPO_PAGE_COPY as COPY } from "@exp/domain-contract/repo-page"
 import {
   Button,
   DialogFooter,
+  GlassGroup,
   GlassInputRow,
   GlassToggleRow,
   ListRow,
@@ -73,6 +74,8 @@ export function AddEcodeRepositoryForm({
   }
 
   const Footer = page ? PageFooter : DialogFooter
+  // A page's fields are THE form group (New board's); the dialog is the surface.
+  const Fields = page ? GlassGroup : ListBody
   return (
     <form
       data-testid="add-ecode-repository"
@@ -82,7 +85,7 @@ export function AddEcodeRepositoryForm({
       }}
       className="space-y-3"
     >
-      <div className={SETTINGS_LIST_CLASS}>
+      <Fields>
         <GlassInputRow
           id="ecode-repo-name"
           label={COPY.add.name}
@@ -126,7 +129,7 @@ export function AddEcodeRepositoryForm({
             onChange={(e) => setMirrorUrl(e.target.value)}
           />
         )}
-      </div>
+      </Fields>
       <Footer>
         <Button type="button" variant="ghost" onClick={onCancel}>
           {COPY.add.cancel}
@@ -142,4 +145,9 @@ export function AddEcodeRepositoryForm({
 /** THE FormActions row on a page (end-aligned, Cancel then the submit). */
 function PageFooter({ children }: { children: ReactNode }) {
   return <div className="flex justify-end gap-2">{children}</div>
+}
+
+/** The dialog's field list: the dialog is the surface. */
+function ListBody({ children }: { children: ReactNode }) {
+  return <div className={SETTINGS_LIST_CLASS}>{children}</div>
 }
