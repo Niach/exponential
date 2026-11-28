@@ -42,6 +42,24 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Everywhere**: the computer-use tray, the session area and the transcript on the web, desktop, iPhone and Android read the same words.`,
   },
   {
+    id: `2026-11-28-desktop-cli-0-14-188`,
+    date: `2026-11-28`,
+    title: `Quiet check-ins on your machines, and the same ⌘ everywhere`,
+    summary: `Desktop and CLI 0.14.188: agents on your computers and servers end a quiet check-in right away, and shortcut keys draw their symbols from one bundled font.`,
+    body: `- **Quiet check-ins stay quiet on your machines**: the desktop app and the CLI end an agent's turn as soon as it has nothing to say, with no repeated tries. See "Quiet check-ins stay quiet" below.
+- **The same key symbols everywhere**: ⌘, ⌥, ⇧ and the arrows in shortcut keys draw from one bundled font instead of whatever the system has.
+- **Everything from 0.14.187**: the AppImage on Ubuntu 22.04 and other older Linux systems.`,
+  },
+  {
+    id: `2026-11-28-genui-event-args`,
+    date: `2026-11-28`,
+    title: `Menus and toggles in agent views answer right`,
+    summary: `A pick in a menu now reaches the agent's or the desktop's function with the item you picked, and a toggle with only a change action responds to a click on every platform.`,
+    body: `- **Menus pass your pick**: a menu whose item runs a function hands it the item you picked instead of nothing.
+- **Toggles respond**: a toggle that only reacts to a change now takes the click on the desktop app, iOS and Android, like on the web.
+- **Voice tray Mute is a toggle again**: in Exponential Desktop's Voice tray, Mute stays pressed while you are muted.`,
+  },
+  {
     id: `2026-11-28-quiet-check-ins`,
     date: `2026-11-28`,
     title: `Quiet check-ins stay quiet`,

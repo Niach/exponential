@@ -1006,7 +1006,8 @@ impl HostPlugin for Host {
             }
             "ede_previews" => {
                 // A hover Popover's change as a function (a document from before
-                // #EDE-75, whose `open` never arrives): the event in `on_action` is the factory's.
+                // #EDE-75; since #EDE-264 its `open {@path: open}` arrives from the
+                // change's payload): the event in `on_action` is the factory's.
                 let app = button_key(args).map(String::from);
                 let open = args.get("open").and_then(Value::as_bool).unwrap_or(app.is_some());
                 cx.defer(move |cx| previews_changed(&shell, app, open, cx));

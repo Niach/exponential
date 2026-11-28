@@ -237,4 +237,39 @@ class MenuPreviewTest {
             }
         }
     }
+
+    /**
+     * #EDE-264 / #EDE-270 `eventArgs` through the core: an action's relative
+     * paths read the event's payload first (a Menu `select`'s {value} in a
+     * host function's args, a `set`'s value, the event's context), then the
+     * scope; a Toggle with only `on.change` is a press target (`pressable`,
+     * what the tap gesture keys on) and each press runs its function.
+     */
+    @Test
+    fun eventArgsCases() = runTest {
+        val fx = f["eventArgs"]!!
+        val cases = fx["cases"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val host = RecordingHost()
+            val m = SurfaceModel("ea", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, backgroundScope, noShaper)
+            m.fixedMeasure = true
+            val surface = fx["surfaces"]!![c["surface"]!!.string!!] as JsonValue.Obj
+            val kids = (surface.v["children"] as JsonValue.Arr).v
+            val first = JsonValue.Obj((kids[0] as JsonValue.Obj).v + ("on" to c["on"]!!))
+            m.setNested(JsonValue.Obj(surface.v + ("children" to JsonValue.Arr(listOf(first) + kids.drop(1)))).json)
+            m.setViewport(390f, 800f)
+            for ((k, v) in c["data"]?.obj.orEmpty()) m.setData("/$k", v)
+            runCurrent()
+            c["pressable"]?.bool?.let { want -> assertEquals("$name: pressable", want, m.indexOf("t")?.let(m::node)?.pressable) }
+            for (step in c["steps"]?.array.orEmpty()) {
+                m.press(if (step.string == "pick") "m.item.0" else "t")
+                runCurrent()
+            }
+            assertEquals("$name: calls", c["calls"], JsonValue.Arr(host.calls.map { JsonValue.Obj(mapOf("name" to JsonValue.Str(it.name), "args" to JsonValue.Obj(it.args))) }))
+            assertEquals("$name: events", c["events"], JsonValue.Arr(host.actions.map { JsonValue.Obj(mapOf("name" to JsonValue.Str(it.name), "context" to it.context)) }))
+            for ((k, v) in c["after"]?.obj.orEmpty()) assertEquals("$name: /$k", v, m.data[k])
+        }
+    }
 }

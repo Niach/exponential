@@ -37,6 +37,10 @@ export interface DataScope {
    *  Stack / Grid ChildList item in data order, sections included; a Table
    *  row), what `@index` answers. */
   index?: number
+  /** #EDE-264: the EVENT's payload while an action resolves: a relative
+   *  path whose first key the payload carries reads inside it (the Rust
+   *  core's `ResolveContext::event`). */
+  event?: Record<string, unknown>
 }
 
 /** RFC 6901 unescaping of one reference token. */
@@ -64,6 +68,7 @@ export function hasItem(scope: DataScope | undefined): boolean {
 /** The value a binding path names in a scope: inside the literal item for a
  *  relative path under an item scope, else at its absolute pointer. */
 export function readPath(data: unknown, path: string, scope: DataScope = {}): unknown {
+  if (scope.event && path !== `` && !path.startsWith(`/`) && Object.prototype.hasOwnProperty.call(scope.event, unescape(path.split(`/`)[0]!))) return readPointer(scope.event, `/${path}`)
   if (!path.startsWith(`/`) && hasItem(scope)) return path === `` ? scope.item : readPointer(scope.item, `/${path}`)
   return readPointer(data, absolutePath(path, scope))
 }

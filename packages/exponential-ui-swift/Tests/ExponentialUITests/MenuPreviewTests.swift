@@ -222,4 +222,43 @@ final class MenuPreviewTests: XCTestCase {
             }
         }
     }
+
+    /// #EDE-264 / #EDE-270 `eventArgs` through the core: an action's
+    /// relative paths read the event's payload first (a Menu `select`'s
+    /// {value} in a host function's args, a `set`'s value, the event's
+    /// context), then the scope; a Toggle with only `on.change` is a press
+    /// target (`pressable`, what the tap gesture keys on) and each press
+    /// runs its function.
+    func testEventArgsCases() throws {
+        let fx = try XCTUnwrap(Fixtures.json("interactions-round1.json")["eventArgs"])
+        let cases = try XCTUnwrap(fx["cases"]?.array)
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let host = Round1Host()
+            let m = try makeModel("ea", theme: "neutral", mode: .light, width: 390)
+            m.host = host
+            guard case .object(var root) = try XCTUnwrap(fx["surfaces"]?[c["surface"]?.string ?? ""], "\(name): surface"),
+                  case .array(var kids) = root["children"] ?? .null, case .object(var first) = kids.first ?? .null else { return XCTFail("\(name): surface shape") }
+            first["on"] = c["on"] ?? .null
+            kids[0] = .object(first)
+            root["children"] = .array(kids)
+            try m.setNested(json: JSONValue.object(root).json)
+            if case .object(let seed) = c["data"] ?? .null {
+                for (k, v) in seed { m.setData(path: "/\(k)", value: v) }
+            }
+            m.pass()
+            if let want = c["pressable"]?.bool { XCTAssertEqual(m.node(id: "t")?.pressable, want, "\(name): pressable") }
+            for step in c["steps"]?.array ?? [] {
+                m.press(id: step.string == "pick" ? "m.item.0" : "t")
+                m.pass()
+            }
+            XCTAssertEqual(JSONValue.array(host.calls.map { .object(["name": .string($0.name), "args": .object($0.args)]) }), c["calls"], "\(name): calls")
+            XCTAssertEqual(JSONValue.array(host.actions.map { .object(["name": .string($0.name), "context": $0.context]) }), c["events"], "\(name): events")
+            if case .object(let after) = c["after"] ?? .null {
+                for (k, v) in after { XCTAssertEqual(m.data[k], v, "\(name): /\(k)") }
+            }
+        }
+    }
 }
+

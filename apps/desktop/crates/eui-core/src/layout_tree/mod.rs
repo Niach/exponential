@@ -1030,7 +1030,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         if node.component == "Text" && matches!(str_prop(&props, "truncate"), Some("end" | "middle")) {
             n.lines = Some(1);
         }
-        n.pressable = (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || bool_prop(&props, "pressable") || (node.component == "Button" && (bool_prop(&props, "submit") || bool_prop(&props, "hold"))) || (matches!(node.component.as_str(), "Box" | "Button" | "Link") && str_prop(&props, "href").is_some_and(|href| !href.is_empty()))) && !bool_prop(&props, "disabled") && !bool_prop(&props, "loading");
+        n.pressable = (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || bool_prop(&props, "pressable") || (node.component == "Button" && (bool_prop(&props, "submit") || bool_prop(&props, "hold"))) || node.component == "Toggle" || (matches!(node.component.as_str(), "Box" | "Button" | "Link") && str_prop(&props, "href").is_some_and(|href| !href.is_empty()))) && !bool_prop(&props, "disabled") && !bool_prop(&props, "loading");
         n.on = node.on.clone();
         n.source = self.source_of(&node.id).cloned();
         n.accessibility = node.accessibility.as_ref().and_then(|a| self.resolve(a, scope));

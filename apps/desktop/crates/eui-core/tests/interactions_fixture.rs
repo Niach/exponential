@@ -1481,3 +1481,47 @@ fn menu_open_cases_open_close_and_write_through_like_the_reference() {
         }
     }
 }
+
+/// #EDE-264 / #EDE-270 eventArgs at the core (so gpui and the natives
+/// through the FFI): an action's relative paths read the event's payload
+/// first (a Menu `select`'s {value} in a host function's args, a `set`'s
+/// value, the event's context), then the scope; a Toggle with only
+/// `on.change` is a press target and each press runs its function.
+#[test]
+fn event_args_read_the_payload_and_a_toggle_presses_like_the_reference() {
+    let f = fixture();
+    let fx = &f["eventArgs"];
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut tree = fx["surfaces"][c["surface"].as_str().unwrap()].clone();
+        tree["children"][0]["on"] = c["on"].clone();
+        let mut s = surface(tree);
+        for (k, v) in c["data"].as_object().unwrap() {
+            s.set_data(&format!("/{k}"), Some(v.clone())).unwrap();
+        }
+        let mut m = fixed();
+        s.layout(&mut m);
+        if let Some(want) = c.get("pressable") {
+            let t = s.index_of("t").unwrap();
+            assert_eq!(s.layout_node(t).map(|n| n.pressable), want.as_bool(), "{name}: pressable");
+        }
+        let (mut calls, mut events) = (vec![], vec![]);
+        for step in c["steps"].as_array().unwrap() {
+            let target = if step == "pick" { "m.item.0" } else { "t" };
+            let i = s.index_of(target).unwrap_or_else(|| panic!("{name}: no {target}"));
+            for e in s.event(i, "press", None) {
+                match e {
+                    OutEvent::FunctionCall { name, args, .. } => calls.push(json!({"name": name, "args": args})),
+                    OutEvent::Action { name, context, .. } => events.push(json!({"name": name, "context": context})),
+                    _ => {}
+                }
+            }
+            s.layout(&mut m);
+        }
+        assert_eq!(Value::Array(calls), c["calls"], "{name}: calls");
+        assert_eq!(Value::Array(events), c["events"], "{name}: events");
+        for (k, v) in c.get("after").and_then(Value::as_object).into_iter().flatten() {
+            assert_eq!(s.get_data(&format!("/{k}")), Some(v), "{name}: /{k}");
+        }
+    }
+}

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- An action's relative paths read the event's payload first (#EDE-264, React's rule): `on={select: fn(value=$value)}` passes the picked value to the function; `fixtures/interactions-round1.json` `eventArgs` (`event-args.test.tsx`).
 - `Inter Symbols` after every theme family (React's, from the shared web recipes).
 - Select option `section` (#EXP-2161), React's. Fix: the plain popup's option `hint` showed only on the chosen row (React's shows it on every row).
 - Text `runs` + `dropCap` (genUI round 4, React's): styled spans (weights, tones, marks, policed links) and a floated first letter.
