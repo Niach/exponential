@@ -358,43 +358,56 @@ impl WgpuRenderer {
             .window_handle()
             .map_err(|e| anyhow::anyhow!("Failed to get window handle: {e}"))?;
 
-        let target = wgpu::SurfaceTargetUnsafe::RawHandle {
-            // Fall back to the display handle already provided via InstanceDescriptor::display.
-            raw_display_handle: None,
-            raw_window_handle: window_handle.as_raw(),
-        };
-
-        // Use the existing context's instance if available, otherwise create a new one.
-        // The surface must be created with the same instance that will be used for
-        // adapter selection, otherwise wgpu will panic.
-        let instance = gpu_context
-            .borrow()
-            .as_ref()
-            .map(|ctx| ctx.instance.clone())
-            .unwrap_or_else(|| WgpuContext::instance(Some(Box::new(window.clone()))));
-
         // Safety: The caller guarantees that the window handle is valid for the
         // lifetime of this renderer. In practice, the RawWindow struct is created
         // from the native window handles and the surface is dropped before the window.
-        let surface = unsafe {
-            instance
-                .create_surface_unsafe(target)
-                .map_err(|e| anyhow::anyhow!("Failed to create surface: {e}"))?
+        let new_surface = |instance: &wgpu::Instance| {
+            create_surface(instance, window_handle.as_raw())
+                .map_err(|e| anyhow::anyhow!("Failed to create surface: {e}"))
+        };
+
+        // Exponential patch (#PERF-17): the first window selects its adapter on
+        // a Vulkan-only instance (`WgpuContext::new_vulkan_first`: no EGL start-
+        // up) and falls back to upstream's Vulkan + GL instance only when none
+        // of the Vulkan adapters ranked ahead of OpenGL works. Either way the
+        // surface was configured by the adapter test.
+        let existing_instance = gpu_context.borrow().as_ref().map(|ctx| ctx.instance.clone());
+        let (surface, new_context) = match existing_instance {
+            Some(instance) => (new_surface(&instance)?, None),
+            None => {
+                let instance = WgpuContext::instance_with_backends(
+                    Some(Box::new(window.clone())),
+                    wgpu::Backends::VULKAN,
+                );
+                let vulkan_first = new_surface(&instance).and_then(|surface| {
+                    let context =
+                        WgpuContext::new_vulkan_first(instance, &surface, &config, compositor_gpu)?;
+                    Ok((surface, context))
+                });
+                match vulkan_first {
+                    Ok((surface, context)) => (surface, Some(context)),
+                    Err(error) => {
+                        log::info!("no Vulkan adapter ahead of OpenGL works ({error:#}); trying Vulkan + OpenGL");
+                        // The surface must be created with the same instance that will be used
+                        // for adapter selection, otherwise wgpu will panic.
+                        let instance = WgpuContext::instance(Some(Box::new(window.clone())));
+                        let surface = new_surface(&instance)?;
+                        let context = WgpuContext::new(instance, &surface, &config, compositor_gpu)?;
+                        (surface, Some(context))
+                    }
+                }
+            }
         };
 
         let mut ctx_ref = gpu_context.borrow_mut();
-        let surface_configured = ctx_ref.is_none();
-        let context = match ctx_ref.as_mut() {
-            Some(context) => {
+        let surface_configured = new_context.is_some();
+        let context = match new_context {
+            Some(context) => ctx_ref.insert(context),
+            None => {
+                let context = ctx_ref.as_mut().context("GPU context vanished")?;
                 context.check_compatible_with_surface(&surface)?;
                 context
             }
-            None => ctx_ref.insert(WgpuContext::new(
-                instance,
-                &surface,
-                &config,
-                compositor_gpu,
-            )?),
         };
 
         let atlas = Arc::new(WgpuAtlas::from_context(context));
