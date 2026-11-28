@@ -65,7 +65,10 @@ if hasFFI {
         .target(name: "ExponentialUICore", dependencies: ["ExponentialUIFFI"]),
         // AVKit: Video plays in its `VideoPlayer` (linked explicitly; autolink
         // alone leaves the test bundle without AVPlayerView's metadata).
-        .target(name: "ExponentialUI", dependencies: ["ExponentialUICore", "ExponentialUIPrimitives"], linkerSettings: [.linkedFramework("AVKit")]),
+        // `Resources/Fonts`: Inter Symbols, the key-symbol fallback after every
+        // theme family (packages/exponential-ui/fonts/inter-symbols.json, SIL
+        // OFL 1.1: OFL-Inter.txt beside the faces), so no host registers it.
+        .target(name: "ExponentialUI", dependencies: ["ExponentialUICore", "ExponentialUIPrimitives"], resources: [.copy("Resources/Fonts")], linkerSettings: [.linkedFramework("AVKit")]),
         // VAPP-105: `Resources/bench/` holds the benchmark scenario files on a
         // REAL device run only (the bench runner copies them in and out; they
         // are gitignored); macOS and the Simulator read the repo's files.

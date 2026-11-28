@@ -1,0 +1,17 @@
+eui-gpui — bundled third-party font
+===================================
+
+The `eui-gpui` crate is Exponential's own source, covered by the repository's
+Apache License 2.0 (see /LICENSE at the repo root) — EXCEPT the font files
+listed below.
+
+assets/fonts/InterSymbols-{Regular,Medium,SemiBold,Bold}.ttf
+------------------------------------------------------------
+
+`Inter Symbols`: a subset of Inter (https://github.com/rsms/inter) to the key
+symbols in packages/exponential-ui/fonts/inter-symbols.json, renamed, at
+weights 400/500/600/700. Embedded into the crate (`src/symbol_fonts.rs`) and
+registered with gpui's text system at runtime.
+
+Copyright (c) 2016 The Inter Project Authors. Licensed under the SIL Open
+Font License, Version 1.1 (assets/fonts/OFL-Inter.txt).

@@ -42,6 +42,7 @@ pub mod media;
 pub mod motion;
 pub mod paint;
 pub mod runtime;
+pub mod symbol_fonts;
 pub mod text;
 pub mod transport;
 pub mod view;

@@ -68,7 +68,9 @@ export interface FontFace {
 
 export interface FontManifest {
   default: string
-  families: Record<string, { faces?: FontFace[]; substitute?: string }>
+  /** `unicodeRange`: the family covers only these codepoints (Inter Symbols),
+   *  so it is never a text's first available font (CSS Fonts 4 §5.2). */
+  families: Record<string, { faces?: FontFace[]; substitute?: string; unicodeRange?: string }>
   lastResort?: { families: string[] }
 }
 
@@ -135,7 +137,8 @@ export function fontFaceCss(fonts: FontManifest, url: (file: string) => string):
   const rules: string[] = []
   for (const [family, spec] of Object.entries(fonts.families)) {
     const faces = spec.faces ?? (spec.substitute ? fonts.families[spec.substitute]?.faces : undefined) ?? []
-    for (const f of faces) rules.push(`@font-face { font-family: "${family}"; src: url("${url(f.file)}") format("truetype"); font-weight: ${f.weight}; font-style: ${f.style}; font-display: block; }`)
+    const range = spec.unicodeRange ? ` unicode-range: ${spec.unicodeRange};` : ``
+    for (const f of faces) rules.push(`@font-face { font-family: "${family}"; src: url("${url(f.file)}") format("truetype"); font-weight: ${f.weight}; font-style: ${f.style}; font-display: block;${range} }`)
   }
   return rules.join(`\n`)
 }

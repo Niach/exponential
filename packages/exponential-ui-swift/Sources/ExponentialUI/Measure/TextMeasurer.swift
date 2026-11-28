@@ -22,6 +22,9 @@ import AppKit
 /// `sans-serif` = the set's default (else the system font), `ui-monospace` /
 /// `monospace` = the set's alias (else the system monospaced font),
 /// `ui-serif` / `serif` = the set's alias (else the system serif, New York).
+/// Every font cascades to `Inter Symbols` (the set's faces of that name, else
+/// the package's own), right after its family and ahead of the system's
+/// fallback: the CSS stack `"Geist", "Inter Symbols", …` of the web recipes.
 public enum TextFonts {
     /// One face of a family.
     public struct Face: @unchecked Sendable {
@@ -42,6 +45,30 @@ public enum TextFonts {
 
     /// The `wght` variation axis tag.
     static let wghtAxis = 0x7767_6874
+
+    /// The key-symbol fallback family (packages/exponential-ui/fonts/inter-symbols.json:
+    /// Inter subset to ⌘⌥⇧⌃, the arrows and the other key symbols; Geist and
+    /// Nunito have no ⌘). Drift-gated by `src/web/inter-symbols.test.ts`.
+    public static let symbolsFamily = "Inter Symbols"
+    /// Its faces in `Resources/Fonts` (400, 500, 600, 700).
+    static let symbolFiles = ["InterSymbols-Regular", "InterSymbols-Medium", "InterSymbols-SemiBold", "InterSymbols-Bold"]
+
+    /// The bundled faces, registered with the process once.
+    private static let bundledSymbolFaces: [Face] = {
+        var set = Set()
+        let urls = symbolFiles.compactMap { Bundle.module.url(forResource: $0, withExtension: "ttf", subdirectory: "Fonts") }
+        set.add(family: symbolsFamily, files: urls)
+        return set.faces[symbolsFamily] ?? []
+    }()
+
+    /// The faces `Inter Symbols` cascades to: the installed set's (the
+    /// conformance harness loads the same files), else the bundled ones.
+    static func symbolFaces() -> [Face] {
+        lock.lock()
+        let own = installed?.faces[symbolsFamily]
+        lock.unlock()
+        return own ?? bundledSymbolFaces
+    }
 
     /// An explicit font set: family name → its faces, theme family names →
     /// the family that stands in for them (`Nunito` → `Inter`), and the
@@ -219,6 +246,12 @@ public enum TextFonts {
             // `tnum`: the monospaced-numbers selector of the number-spacing feature.
             let feature: [CFString: Any] = [kCTFontFeatureTypeIdentifierKey: kNumberSpacingType, kCTFontFeatureSelectorIdentifierKey: kMonospacedNumbersSelector]
             let d = CTFontDescriptorCreateWithAttributes([kCTFontFeatureSettingsAttribute: [feature]] as CFDictionary)
+            font = CTFontCreateCopyWithAttributes(font, size, nil, d)
+        }
+        // A glyph the family lacks (⌘ in Geist) comes from Inter Symbols at the
+        // CSS-matched weight, before CoreText's own cascade.
+        if resolved != symbolsFamily, let symbols = match(symbolFaces(), weight: weight, italic: italic) {
+            let d = CTFontDescriptorCreateWithAttributes([kCTFontCascadeListAttribute: [symbols.descriptor]] as CFDictionary)
             font = CTFontCreateCopyWithAttributes(font, size, nil, d)
         }
         lock.lock()

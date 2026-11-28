@@ -1,6 +1,7 @@
 // VAPP-289: the CSS font stack alone, so a primitive (canvas.ts) names a
 // family without pulling the theme compiler into `web/primitives`.
 
+import { INTER_SYMBOLS_FAMILY } from "@exponential_app/eui"
 import type { FontSpec } from "@exponential_app/eui"
 
 /** A CSS string literal: backslashes and quotes escaped, so a family name
@@ -18,5 +19,8 @@ export function fontStack(family: string, fonts: Record<string, FontSpec>): stri
   // VAPP-162: a CSS generic family (`ui-serif`, `ui-monospace`…) stays a
   // keyword: quoted it would name a font no system has.
   const name = CSS_GENERIC_FAMILIES.has(family) ? family : cssString(family)
-  return fallback ? `${name}, ${fallback}` : name
+  // The key-symbol face (fonts/inter-symbols.json) right after the theme
+  // family, ahead of any OS fallback: ⌘ is the same glyph everywhere.
+  const symbols = cssString(INTER_SYMBOLS_FAMILY)
+  return fallback ? `${name}, ${symbols}, ${fallback}` : `${name}, ${symbols}`
 }

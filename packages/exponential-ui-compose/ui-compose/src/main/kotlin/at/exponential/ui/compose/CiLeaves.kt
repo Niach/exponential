@@ -40,7 +40,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -320,7 +319,7 @@ private fun LogToolbar(
         val field = if (compact) Modifier.weight(1f, fill = true) else Modifier.weight(1f, fill = false).widthIn(max = CiLog.SEARCH_WIDTH.toFloat().dp).fillMaxWidth()
         LogSearchField(cx, query, barHeight, field, step, fire)
         if (query.isNotEmpty()) {
-            BasicText(countText, style = cx.composeTextStyle(ts = cts, color = countPart.color ?: cx.ink), maxLines = 1, softWrap = false)
+            ShapedText(countText, style = cx.composeTextStyle(ts = cts, color = countPart.color ?: cx.ink), maxLines = 1, softWrap = false)
         }
         LogStepButton(cx, "prev", "ui-chevron-up", "previousMatch", total > 0) { step(-1) }
         LogStepButton(cx, "next", "ui-chevron-down", "nextMatch", total > 0) { step(1) }
@@ -378,7 +377,7 @@ private fun LogSearchField(cx: LeafContext, query: String, height: Float, modifi
         decorationBox = { inner ->
             Box(Modifier.fillMaxSize().ciBox(look.style).padding(horizontal = look.style.paddingHorizontal.dp), contentAlignment = Alignment.CenterStart) {
                 if (text.isEmpty()) {
-                    BasicText(placeholder, style = cx.composeTextStyle(ts = ts, color = cx.themeColor("mutedForeground") ?: ink.copy(alpha = 0.6f)), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                    ShapedText(placeholder, style = cx.composeTextStyle(ts = ts, color = cx.themeColor("mutedForeground") ?: ink.copy(alpha = 0.6f)), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                 }
                 inner()
             }
@@ -423,7 +422,7 @@ private fun LogToggle(cx: LeafContext, part: String, on: Boolean, action: () -> 
             .padding(horizontal = (look.style.paddingHorizontal + look.style.borderWidth).dp),
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(name, style = cx.composeTextStyle(ts = ts, color = look.color ?: cx.ink), maxLines = 1, softWrap = false, modifier = Modifier.clearAndSetSemantics {})
+        ShapedText(name, style = cx.composeTextStyle(ts = ts, color = look.color ?: cx.ink), maxLines = 1, softWrap = false, modifier = Modifier.clearAndSetSemantics {})
     }
 }
 
@@ -586,8 +585,8 @@ private fun LogSectionRow(cx: LeafContext, s: CiLog.Section, open: Boolean, widt
             IconView("ui-chevron-right", chevron.width ?: iconSize, chevron.color ?: cx.ink, cx.model)
         }
         CiStatusGlyph(s.status, icon.color ?: cx.ink, iconSize, cx.model)
-        BasicText(s.title, style = cx.composeTextStyle(ts = tts, color = title.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = true))
-        s.duration?.let { d -> BasicText(d, style = cx.composeTextStyle(ts = mts, color = meta.color ?: cx.ink), maxLines = 1, softWrap = false) }
+        ShapedText(s.title, style = cx.composeTextStyle(ts = tts, color = title.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = true))
+        s.duration?.let { d -> ShapedText(d, style = cx.composeTextStyle(ts = mts, color = meta.color ?: cx.ink), maxLines = 1, softWrap = false) }
     }
 }
 
@@ -641,14 +640,14 @@ private fun LogLineRow(
                 .padding(horizontal = gutterLook.style.paddingHorizontal.dp),
             contentAlignment = Alignment.CenterEnd,
         ) {
-            BasicText(n.toString(), style = cx.composeTextStyle(ts = code, color = gutterLook.color ?: cx.ink), maxLines = 1, softWrap = false, modifier = Modifier.alpha(gutterLook.style.opacity ?: 1f))
+            ShapedText(n.toString(), style = cx.composeTextStyle(ts = code, color = gutterLook.color ?: cx.ink), maxLines = 1, softWrap = false, modifier = Modifier.alpha(gutterLook.style.opacity ?: 1f))
         }
         if (timestamps) {
             Box(Modifier.width(timeWidth.dp).padding(horizontal = timeLook.style.paddingHorizontal.dp), contentAlignment = Alignment.CenterStart) {
-                BasicText(line?.time ?: "", style = cx.composeTextStyle(ts = code, color = timeLook.color ?: cx.ink), maxLines = 1, softWrap = false)
+                ShapedText(line?.time ?: "", style = cx.composeTextStyle(ts = code, color = timeLook.color ?: cx.ink), maxLines = 1, softWrap = false)
             }
         }
-        BasicText(text, style = cx.composeTextStyle(ts = code), maxLines = 1, softWrap = false, overflow = TextOverflow.Visible)
+        ShapedText(text, style = cx.composeTextStyle(ts = code), maxLines = 1, softWrap = false, overflow = TextOverflow.Visible)
     }
 }
 
@@ -747,7 +746,7 @@ internal fun JobGraphLeaf(cx: LeafContext) {
                 Box(Modifier.size(layout.width.toFloat().dp, layout.height.toFloat().dp)) {
                     for (s in layout.stages) {
                         Box(Modifier.absoluteOffset(s.x.toFloat().dp, 0.dp).size(g.nodeWidth.toFloat().dp, g.stageHeight.toFloat().dp), contentAlignment = Alignment.CenterStart) {
-                            BasicText(s.title, style = cx.composeTextStyle(ts = sts, color = stage.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                            ShapedText(s.title, style = cx.composeTextStyle(ts = sts, color = stage.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                         }
                     }
                     // Connectors only for the hovered / focused / held node's upstream set.
@@ -829,8 +828,8 @@ private fun JobContent(cx: LeafContext, n: JobGraph.Node, props: Props, look: Pa
     val size = icon.width ?: cx.control("iconSm", 16f)
     Row(modifier, horizontalArrangement = Arrangement.spacedBy((if (look.style.gap > 0f) look.style.gap else cx.spacing("sm")).dp), verticalAlignment = Alignment.CenterVertically) {
         CiStatusGlyph(n.status, icon.color ?: cx.ink, size, cx.model)
-        BasicText(n.name, style = cx.composeTextStyle(ts = nts, color = nameLook.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = true))
-        n.meta?.let { m -> BasicText(m, style = cx.composeTextStyle(ts = mts, color = meta.color ?: cx.ink), maxLines = 1, softWrap = false) }
+        ShapedText(n.name, style = cx.composeTextStyle(ts = nts, color = nameLook.color ?: cx.ink), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = true))
+        n.meta?.let { m -> ShapedText(m, style = cx.composeTextStyle(ts = mts, color = meta.color ?: cx.ink), maxLines = 1, softWrap = false) }
         if (chevron) {
             val c = cx.part("JobGraph", "chevron", props)
             IconView("ui-chevron-right", c.width ?: size, c.color ?: cx.ink, cx.model)

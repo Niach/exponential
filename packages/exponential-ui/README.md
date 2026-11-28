@@ -106,7 +106,9 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   oklch/hsl/rgb (`importShadcnCss`). Shadows live under `modes` (they differ
   in the dark); every other group under `tokens`. Fonts are referenced by
   family; the host registers the files per platform (`fonts` says what to
-  fall back to).
+  fall back to). Every renderer puts the SDK's own `Inter Symbols`
+  (`fonts/inter-symbols.json`: ⌘⌥⇧⌃, arrows and the other key symbols) right
+  after the family, ahead of that fallback, without host setup.
 - **Recipes**: `recipes.<Component>.<part>` = a list of rules; a rule applies
   when every `when` entry matches (`state` = every listed state is active;
   any other key = the recipe prop equals the value or is in the list). Rules

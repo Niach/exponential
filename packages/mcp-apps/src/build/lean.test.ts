@@ -1,10 +1,24 @@
 import { gunzipSync } from "node:zlib"
 import { pruneUtilities } from "./css"
-import { MCP_APP_MAX_BYTES, jsonModule, namespaceJsonImports, packedModule } from "./lean"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+import { INTER_SYMBOLS_FONT_FACES } from "../../../exponential-ui/src/web/inter-symbols.generated"
+import { INTER_SYMBOLS_FACES, MCP_APP_MAX_BYTES, interSymbolsAsFiles, interSymbolsFile, jsonModule, namespaceJsonImports, packedModule } from "./lean"
 
 describe(`#NEW-140 the views' build`, () => {
   it(`keeps every view's budget under OpenClaw's 2 MiB resource cap`, () => {
     for (const bytes of Object.values(MCP_APP_MAX_BYTES)) expect(bytes).toBeLessThanOrEqual(2 * 1024 * 1024 - 64 * 1024)
+  })
+
+  const read = (path: string) => readFileSync(join(__dirname, path))
+  it(`the Inter Symbols faces load the app's /fonts/ files, byte-equal to genUI's`, () => {
+    const code = interSymbolsAsFiles(read(`../../../exponential-ui/src/web/inter-symbols.generated.ts`).toString())
+    expect(code).not.toContain(`data:font`)
+    for (const face of INTER_SYMBOLS_FACES) {
+      expect(code).toContain(`font-weight:${face.weight};src:url(/fonts/${interSymbolsFile(face.style)}) format("woff2");unicode-range:`)
+      expect(read(`../../../../apps/web/public/fonts/${interSymbolsFile(face.style)}`).equals(read(`../../../exponential-ui/fonts/${interSymbolsFile(face.style)}`))).toBe(true)
+    }
+    expect(INTER_SYMBOLS_FONT_FACES).toHaveLength(INTER_SYMBOLS_FACES.length)
   })
 
   it(`a fixture read by members only becomes a namespace import`, () => {

@@ -1,5 +1,5 @@
 {
-  "$comment": "The conformance FONT SET: every theme font family name → the font files BOTH renderers lay text out with (the web as @font-face rules named after the family, served from these files; gpui as the ONLY fonts in a cosmic-text system without system fonts). Paths are repo-relative and committed. A family without committed files names a `substitute` (its metrics are the substitute's, on both sides — the comparison stays apples to apples, it no longer tests that family). CSS generic names the themes use as a family (`ui-monospace`) are mapped too. VAPP-162: `ui-serif` (the system serif) has no committed serif face yet, so it measures as Inter on both sides. `default` = the face the desktop gets for `.SystemUIFont` and every unmapped family. Round 2: Nunito and Fira Code (the playful theme's families, SIL OFL 1.1, licences beside the files in conformance/fonts/) are real faces now; Nunito's statics are instances of Google Fonts' variable Nunito[wght].ttf (fonttools varLib.instancer --update-name-table), Fira Code's are the v6.2 release's. Not shipped in the npm package.",
+  "$comment": "The conformance FONT SET: every theme font family name → the font files BOTH renderers lay text out with (the web as @font-face rules named after the family, served from these files; gpui as the ONLY fonts in a cosmic-text system without system fonts). Paths are repo-relative and committed. A family without committed files names a `substitute` (its metrics are the substitute's, on both sides — the comparison stays apples to apples, it no longer tests that family). CSS generic names the themes use as a family (`ui-monospace`) are mapped too. VAPP-162: `ui-serif` (the system serif) has no committed serif face yet, so it measures as Inter on both sides. `default` = the face the desktop gets for `.SystemUIFont` and every unmapped family. Round 2: Nunito and Fira Code (the playful theme's families, SIL OFL 1.1, licences beside the files in conformance/fonts/) are real faces now; Nunito's statics are instances of Google Fonts' variable Nunito[wght].ttf (fonttools varLib.instancer --update-name-table), Fira Code's are the v6.2 release's. Not shipped in the npm package. Inter Symbols (packages/exponential-ui/fonts, the SDK's key-symbol fallback: Inter subset to fonts/inter-symbols.json's glyphs) is the family every renderer puts right after the theme family, so the harness loads the very faces the SDKs bundle.",
   "default": "Inter",
   "families": {
     "Inter": {
@@ -141,6 +141,31 @@
         },
         {
           "file": "packages/exponential-ui/conformance/fonts/FiraCode-Bold.ttf",
+          "weight": 700,
+          "style": "normal"
+        }
+      ]
+    },
+    "Inter Symbols": {
+      "unicodeRange": "U+2190,U+2191,U+2192,U+2193,U+2196,U+2198,U+21A9,U+21B5,U+21DE,U+21DF,U+21E4,U+21E5,U+21E7,U+21EA,U+2303,U+2305,U+2318,U+2325,U+2326,U+232B,U+238B,U+23CE,U+23CF,U+2423",
+      "faces": [
+        {
+          "file": "packages/exponential-ui/fonts/InterSymbols-Regular.ttf",
+          "weight": 400,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/fonts/InterSymbols-Medium.ttf",
+          "weight": 500,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/fonts/InterSymbols-SemiBold.ttf",
+          "weight": 600,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/fonts/InterSymbols-Bold.ttf",
           "weight": 700,
           "style": "normal"
         }

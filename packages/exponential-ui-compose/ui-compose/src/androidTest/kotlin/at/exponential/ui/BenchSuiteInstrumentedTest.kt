@@ -36,7 +36,7 @@ class BenchSuiteInstrumentedTest {
         val context = instrumentation.targetContext
         ExponentialUi.appContext = context.applicationContext
         val density = context.resources.displayMetrics.density
-        val shaper = TextShaper(TextMeasurer(createFontFamilyResolver(context), Density(density, 1f), LayoutDirection.Ltr), density) { null }
+        val shaper = TextShaper(TextMeasurer(createFontFamilyResolver(context), Density(density, 1f), LayoutDirection.Ltr), density, context) { null }
         val assets = instrumentation.context.assets
         val suite = BenchSuite(
             read = { id -> JsonValue.parse(assets.open("bench/$id.json").bufferedReader().use { it.readText() }) },

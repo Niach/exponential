@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `Inter Symbols` after every theme family (React's, from the shared web recipes).
 - Select option `section` (#EXP-2161), React's. Fix: the plain popup's option `hint` showed only on the chosen row (React's shows it on every row).
 - Text `runs` + `dropCap` (genUI round 4, React's): styled spans (weights, tones, marks, policed links) and a floated first letter.
 - Box backgrounds (genUI round 4): `createBackgroundImage`, React's `useBackgroundImage` (`--xui-bgi` on the node).

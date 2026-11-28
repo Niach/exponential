@@ -26,6 +26,7 @@
     "./themes/*": "./themes/*",
     "./generated/*": "./generated/*",
     "./conformance/*": "./conformance/*",
+    "./fonts/*": "./fonts/*",
     "./eval/*": "./eval/*",
     "./skills": "./skills/index.ts",
     "./skills/*": "./skills/*",
