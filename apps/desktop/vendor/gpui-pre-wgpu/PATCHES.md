@@ -1,4 +1,4 @@
-# Vendored gpui-pre-wgpu (Exponential patches, #EDE-65, #VAPP-166, #EDE-155, #EDE-237, #EXP-2211)
+# Vendored gpui-pre-wgpu (Exponential patches, #EDE-65, #VAPP-166, #EDE-155, #EDE-237, #EXP-2211, #PERF-17)
 
 Source: the `gpui-pre-wgpu` crate 0.3.11 as published on crates.io, a
 snapshot of the `gpui_wgpu` crate (`crates/gpui_wgpu`) of
@@ -88,3 +88,34 @@ it; Mesa 24.0.5 does not, and neither does a 24-bit visual (Xvfb
 behind the others (llvmpipe over GL paints the same windows) with a warning
 naming it; it stays the last resort. `is_black_presenting_lavapipe` and
 `mesa_version` are public for `apps/desktop/crates/eui-gpui/tests/software_adapters.rs`.
+
+## #PERF-17: a faster cold start (no EGL, fonts in the background)
+
+Marked `Exponential patch (#PERF-17)`. Measured on mint (X11, RTX 4090 +
+Intel iGPU + lavapipe): exec → first render of a real window went from
+~250-430 ms to ~190-330 ms, the window's threads from 113 to 48 and its
+RSS by ~25 MB (Mesa's GL driver and its llvmpipe threads are never loaded).
+
+- **`src/wgpu_renderer.rs`, `src/wgpu_context.rs`: Vulkan first.** The first
+  window used to create its instance with Vulkan + GL; initialising EGL alone
+  cost 100-150 ms. It now selects its adapter on a Vulkan-only instance
+  (`WgpuContext::new_vulkan_first`, `instance_with_backends`), trying only the
+  adapters that rank ahead of every adapter OpenGL can expose
+  (`outranks_opengl`: a GL adapter reports device 0 and Integrated, Other or
+  Cpu, so its best `sort_adapters` rank is `(1, 1, 1, 1)`), in the order the
+  Vulkan + GL pass would try them. When none works (lavapipe, a VM's virtual
+  GPU, no Vulkan driver) it falls back to upstream's Vulkan + GL pass, so the
+  adapter picked never changes and #EXP-2211's lavapipe ordering stays as it
+  was (that pass alone warns about it). `sort_adapters`' key is
+  `adapter_rank`. Device-loss recovery is unchanged.
+  `apps/desktop/crates/eui-gpui/tests/software_adapters.rs` covers the cut.
+- **`src/cosmic_text_system.rs`: system fonts in the background.**
+  `CosmicTextSystem::new` loads `FontSystem::new()` (fontdb parsing every
+  system font, 20-120 ms) on a `system-fonts` thread; `state()`, the one way
+  to the state, joins it on the first access that reads the database, so
+  every caller sees the same complete database as before. `add_fonts`
+  (always `Ok`) only queues while the load runs and the join adds the queued
+  fonts in order, so #EDE-155's shadowing still sees the system faces;
+  `set_missing_glyph_sink` never waits. `new_without_system_fonts` is
+  unchanged.
+
