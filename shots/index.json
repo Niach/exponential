@@ -6268,6 +6268,22 @@
         "sha256": "439c95b62b8d285fddacf4d4918956a14929becb6e2131546bf46b1ec3a9f2c8"
       }
     },
+    "new-repository": {
+      "desktop": {
+        "file": "shots/new-repository/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 44678,
+        "sha256": "8651dd5a8240abec691ea966eb36915cdf18532a8613c1243d32147ebf7fdbc4"
+      },
+      "ios": {
+        "file": "shots/new-repository/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 23826,
+        "sha256": "c03477e51b304bff216b063f3c7233772249d151be29ff5821f89e3424a36e89"
+      }
+    },
     "new-tab-menu": {
       "desktop": {
         "file": "shots/new-tab-menu/desktop.webp",
