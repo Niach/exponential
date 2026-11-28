@@ -103,7 +103,7 @@ export function AddEcodeRepositoryForm({
             onChange={(e) => setDescription(e.target.value)}
           />
         )}
-        <ListRow className="gap-3 px-4 py-3">
+        <ListRow className="gap-3 rounded-none px-4 py-3">
           <span className="flex-1 text-sm">{COPY.add.defaultBranch}</span>
           <Select value={branch} onValueChange={setBranch}>
             <SelectTrigger size="sm" className="w-auto font-mono">
