@@ -37,9 +37,9 @@ const SHEET: &str = "
 .title { width: 100%; font-size: 18px; font-weight: 600 }
 .card { gap: 4px; width: 196px; padding: 8px; border: 1px solid #ffffff1a; border-radius: 8px }
 .caption { font-size: 12px }
-.erow { height: 36px; align-items: center; justify-content: space-between; padding-left: 12px; padding-right: 12px; border-radius: 6px }
+.erow { height: 32px; align-items: center; justify-content: space-between; padding-left: 12px; padding-right: 12px; border-radius: 6px }
 .meta { color: #a1a1a1 }
-.button { height: 28px; align-items: center; justify-content: center; border: 1px solid #ffffff26; background-color: #ffffff0f; border-radius: 8px; font-weight: 500 }
+.button { text-align: center; height: 28px; align-items: center; justify-content: center; border: 1px solid #ffffff26; background-color: #ffffff0f; border-radius: 8px; font-weight: 500 }
 .list { height: 800px; width: 390px }
 .lrow { height: 40px; align-items: center; justify-content: space-between; padding-left: 12px; padding-right: 12px; border-bottom: 1px solid #ffffff1a }
 ";

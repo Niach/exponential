@@ -117,7 +117,8 @@ fn stats(mut v: Vec<f64>) -> (f64, f64, f64) {
     (mean, p95, v[v.len() / 2])
 }
 
-fn bench() {
+fn bench(part: &str) {
+    if part == "list" { return benchlist(); }
     let t_main = since_t0_ms();
     let (comps, w, h) = surface250();
     let started = Instant::now();
@@ -147,6 +148,19 @@ fn bench() {
     }
     let (delta_mean, delta_p95, delta_med) = stats(deltas);
 
+    println!(
+        "{}",
+        json!({
+            "renderer": "gpui", "t0_to_main_ms": t_main, "first_frame_in_process_ms": first_in_process, "first_frame_from_t0_ms": first_from_t0,
+            "rss_after_first_frame_mb": rss_first,
+            "delta_mean_ms": delta_mean, "delta_p95_ms": delta_p95, "delta_median_ms": delta_med
+        })
+    );
+    std::mem::forget(cx);
+}
+
+fn benchlist() {
+    let mut cx = context(false);
     // Scroll: a 10k-row List (bench-list.json's shape), 390 × 800, 100 steps of one viewport.
     let (lw, lh) = (390.0_f32, 800.0_f32);
     let rows: Vec<Value> = (0..10_000).map(|i| json!({"id": format!("r{i}"), "title": format!("Row {i}"), "meta": (i % 97).to_string()})).collect();
@@ -170,17 +184,8 @@ fn bench() {
     }
     let (scroll_mean, scroll_p95, scroll_med) = stats(steps);
     let rss_scrolled = rss_mb();
-    println!(
-        "{}",
-        json!({
-            "renderer": "gpui", "t0_to_main_ms": t_main, "first_frame_in_process_ms": first_in_process, "first_frame_from_t0_ms": first_from_t0,
-            "rss_after_first_frame_mb": rss_first,
-            "delta_mean_ms": delta_mean, "delta_p95_ms": delta_p95, "delta_median_ms": delta_med,
-            "list_first_frame_ms": list_first, "rss_after_list_first_mb": rss_list_first,
-            "scroll_mean_ms": scroll_mean, "scroll_p95_ms": scroll_p95, "scroll_median_ms": scroll_med,
-            "rss_after_scroll_mb": rss_scrolled
-        })
-    );
+    println!("{}", json!({"renderer": "gpui", "list_first_frame_ms": list_first, "rss_after_list_first_mb": rss_list_first,
+        "scroll_mean_ms": scroll_mean, "scroll_p95_ms": scroll_p95, "scroll_median_ms": scroll_med, "rss_after_scroll_mb": rss_scrolled}));
     std::mem::forget(cx);
 }
 
@@ -245,7 +250,7 @@ fn window_mode(secs: u64) {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("bench") => bench(),
+        Some("bench") => bench(args.get(1).map(String::as_str).unwrap_or("250")),
         Some("shot") => shot(args.get(1).map(String::as_str).unwrap_or("gpui.png")),
         Some("window") => window_mode(args.get(1).and_then(|s| s.parse().ok()).unwrap_or(25)),
         _ => eprintln!("usage: spike_gpui bench | shot <png> | window <secs>"),
