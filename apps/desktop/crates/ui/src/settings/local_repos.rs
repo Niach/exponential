@@ -1025,7 +1025,7 @@ fn ghost_xs(chrome: &Chrome, id: &str, icon: &str, tint: &str, tip: Value, event
     let untinted = tint == chrome.foreground;
     let mut button = json!({"id": id, "component": "Box", "visible": visible, "@accessibility": {"label": tip.clone()},
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 24, "height": 24, "borderRadius": 9999},
-        "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": 10.5, "height": 10.5, "color": if dim && untinted { &chrome.muted } else { tint }, "opacity": if dim && untinted { 0.5 } else { 1.0 }}}]});
+        "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": XS * theme::REM_PX, "height": XS * theme::REM_PX, "color": if dim && untinted { &chrome.muted } else { tint }, "opacity": if dim && untinted { 0.5 } else { 1.0 }}}]});
     if !dim {
         button["props"] = json!({"pressable": true});
         button["on"] = json!({"press": {"event": event}});
@@ -1064,7 +1064,7 @@ fn band_spinner(ink: &Ink, id: &str, visible: Value, disabled: bool) -> Value {
 /// The 24 px ghost slot's spinner (a busy button).
 fn ghost_spinner(ink: &Ink, id: &str, visible: Value) -> Value {
     json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 24, "height": 24},
-        "children": [{"id": format!("{id}_spin"), "component": "Spinner", "style": {"width": 10.5, "height": 10.5, "color": ink.muted, "opacity": 0.5}}]})
+        "children": [{"id": format!("{id}_spin"), "component": "Spinner", "style": {"width": ink.r(XS), "height": ink.r(XS), "color": ink.muted, "opacity": 0.5}}]})
 }
 
 /// One worktree row (EXP-369/694, the ladder's rhythm: `px_3` / `py_2`,
@@ -1104,7 +1104,7 @@ fn repo_row(ink: &Ink, chrome: &Chrome) -> Value {
     let mut name = ink.text("repo_name", path("name"), SM, &ink.foreground);
     name["props"]["lines"] = json!(1);
     name["style"]["fontWeight"] = json!(500);
-    let bar = json!({"id": "repo_size_bar", "component": "Skeleton", "visible": path("measuring"), "props": {"width": "42", "height": "10.5"}, "style": {"width": 42, "height": 10.5, "borderRadius": chrome.radius_md, "backgroundColor": chrome.skeleton_value}});
+    let bar = json!({"id": "repo_size_bar", "component": "Skeleton", "visible": path("measuring"), "props": {"width": "42", "height": ink.r(XS).to_string()}, "style": {"width": 42, "height": ink.r(XS), "borderRadius": chrome.radius_md, "backgroundColor": chrome.skeleton_value}});
     let mut size = ink.text("repo_size", path("size"), XS, &ink.muted);
     size["visible"] = path("sized");
     let storage = json!({"id": "repo_storage", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25)},

@@ -145,7 +145,7 @@ fn limits_preview(limits: &coding::AccountLimits) -> Value {
             json!({
                 "id": format!("limit_{index}"),
                 "component": "Box",
-                "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 5.25, "width": "100%"},
+                "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 0.375 * theme::REM_PX, "width": "100%"},
                 "children": [
                     {"id": format!("limit_{index}_label"), "component": "Text", "props": {"text": label, "variant": "muted", "lines": 1}, "style": {"width": 28, "flexShrink": 0, "fontSize": 10}},
                     {"id": format!("limit_{index}_bar"), "component": "Progress", "props": {"value": (used.clamp(0., 1.) * 100.).round(), "tone": tone}, "style": {"flexGrow": 1, "minWidth": 0}},
@@ -153,7 +153,7 @@ fn limits_preview(limits: &coding::AccountLimits) -> Value {
             })
         })
         .collect();
-    json!({"root": {"id": "limits", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": 3.5, "width": "100%"}, "children": rows}, "data": {}})
+    json!({"root": {"id": "limits", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": 0.25 * theme::REM_PX, "width": "100%"}, "children": rows}, "data": {}})
 }
 
 /// #EDE-65 lane T: the draft state behind the drawn Composer takes `text`

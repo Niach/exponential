@@ -664,7 +664,7 @@ struct PageChrome {
 /// `action_error::field_error` under a group (`px_1`).
 fn field_error(chrome: &PageChrome, id: &str, message: Value, visible: Value) -> Value {
     let size = crate::action_error::FIELD_ERROR_PX;
-    json!({"id": id, "component": "Text", "visible": visible, "props": {"text": message}, "style": {"fontSize": size, "lineHeight": 20, "color": chrome.danger, "paddingHorizontal": 3.5}})
+    json!({"id": id, "component": "Text", "visible": visible, "props": {"text": message}, "style": {"fontSize": size, "lineHeight": 20, "color": chrome.danger, "paddingHorizontal": 0.25 * theme::REM_PX}})
 }
 
 /// A `web_sm` `Button` (32 px, `px 12`, `text_sm`, `gap_1`, a `size_3p5`

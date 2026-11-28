@@ -335,7 +335,7 @@ pub(super) fn accounts_group(ink: &Ink, tints: &Tints) -> Value {
     let select_busy = json!({"id": "account_select_busy", "component": "Box", "visible": path("selectBusy"),
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "gap": 4, "width": UPSTREAM_SELECT_WIDTH, "height": 32, "paddingHorizontal": 12, "borderRadius": tints.radius, "borderWidth": 1, "borderColor": tints.outline_stroke_dim, "backgroundColor": tints.outline_fill_dim},
         "children": [
-            {"id": "account_select_busy_text", "component": "Text", "props": {"text": path("serverLabel"), "lines": 1}, "style": {"flexGrow": 1, "flexShrink": 1, "minWidth": 0, "fontSize": ink.r(SM), "lineHeight": 17.5, "color": ink.muted, "opacity": 0.5}},
+            {"id": "account_select_busy_text", "component": "Text", "props": {"text": path("serverLabel"), "lines": 1}, "style": {"flexGrow": 1, "flexShrink": 1, "minWidth": 0, "fontSize": ink.r(SM), "lineHeight": ink.r(1.25), "color": ink.muted, "opacity": 0.5}},
             {"id": "account_select_busy_icon", "component": "Icon", "props": {"name": "ui-chevron-down"}, "style": {"width": 14, "height": 14, "color": ink.muted, "flexShrink": 0}},
         ]});
     let add = button(ink, tints, "account_add", Paint::Outline, None, json!(APP_MCP_COPY.add_server), json!(false), json!({"name": "addServer", "context": {"key": path("key")}}));
