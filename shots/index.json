@@ -6268,6 +6268,29 @@
         "sha256": "439c95b62b8d285fddacf4d4918956a14929becb6e2131546bf46b1ec3a9f2c8"
       }
     },
+    "new-repository": {
+      "android": {
+        "file": "shots/new-repository/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 23028,
+        "sha256": "1ff6d26d339bd230cc2817bc784ce80965c6a824a7063df76996c50da8f0b947"
+      },
+      "web": {
+        "file": "shots/new-repository/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 44496,
+        "sha256": "962116f8806526a246840f8403f769c55b1738404326f467a0d70d14e18bff4b"
+      },
+      "web-mobile": {
+        "file": "shots/new-repository/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 20756,
+        "sha256": "d3a15435a1a97207882ba91594cbeb20b53a180eb7544d2f1fe469d5b40bcc25"
+      }
+    },
     "new-tab-menu": {
       "desktop": {
         "file": "shots/new-tab-menu/desktop.webp",
