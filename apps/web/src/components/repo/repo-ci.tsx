@@ -113,7 +113,7 @@ export function RepoRunsTab({ repository, teamSlug }: { repository: { id: string
   }
   return (
     <div data-testid={REPO_CI_TEST_IDS.runs} className="w-full min-w-0">
-      <CiSurface surfaceId={`repo-runs-${repositoryId}`} tree={tree} onAction={onAction} />
+      <CiSurface key={tab} surfaceId={`repo-runs-${repositoryId}-${tab}`} tree={tree} onAction={onAction} />
     </div>
   )
 }

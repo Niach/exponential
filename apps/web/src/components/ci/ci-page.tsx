@@ -130,7 +130,7 @@ export function CiPageView({
         })}
       />
       </div>
-      <CiSurface surfaceId="ci-page" tree={tree} onAction={onAction} />
+      <CiSurface key={tab} surfaceId={`ci-page-${tab}`} tree={tree} onAction={onAction} />
     </div>
   )
 }
