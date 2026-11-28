@@ -1263,7 +1263,7 @@ fn builtin_apps(demo: bool) -> Vec<apps::App> {
     let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
     vec![
         apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()], wm_class: None, steam_app: None },
-        apps::App { id: format!("{}.desktop", system_settings::APP_ID), name: "System Settings".into(), comment: "Control Center".into(), exec: String::new(), exec_url: None, icon: None, keywords: "preferences settings control center".into(), categories: vec!["Settings".into(), "System".into()], wm_class: None, steam_app: None },
+        apps::App { id: format!("{}.desktop", system_settings::APP_ID), name: "System Settings".into(), comment: "Control Center".into(), exec: String::new(), exec_url: None, icon: if demo { None } else { apps::icon_file("preferences-system").or_else(|| apps::icon_file("org.gnome.Settings")) }, keywords: "preferences settings control center".into(), categories: vec!["Settings".into(), "System".into()], wm_class: None, steam_app: None },
         apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()], wm_class: None, steam_app: None },
     ]
 }
@@ -1325,10 +1325,30 @@ fn settings_open_page(shell: &SharedShell, page: &str, cx: &mut App) {
 /// the front.
 fn settings_show(shell: &SharedShell, cx: &mut App) {
     settings_reap(shell);
-    if shell.borrow().surfaces.activate(system_settings::DOCUMENT, cx) {
+    if shell.borrow().surfaces.is_open(system_settings::DOCUMENT) {
+        // A single instance: the open window comes to the front. The
+        // compositor focuses it (a client's own activation without a token
+        // only asks for attention: the taskbar button turned red in the VM).
+        let id = shell.borrow().model.windows.iter().find(|w| w.app == system_settings::APP_ID).map(|w| w.id.clone());
+        match id.and_then(|id| ede_protocol::WindowId::new(&id).ok()) {
+            Some(id) => {
+                with_ede(shell, |ede| ede.focus(id));
+            }
+            None => {
+                shell.borrow().surfaces.activate(system_settings::DOCUMENT, cx);
+            }
+        }
+        settings_focus_search(shell, cx);
         return;
     }
     settings_feed(shell);
+    // The new window takes the keyboard as it maps (the compositor gives a
+    // shell window without a launch token none; the VM showed it behind).
+    {
+        let mut s = shell.borrow_mut();
+        let known: Vec<String> = s.windows.iter().map(|w| w.id.to_string()).collect();
+        s.focus_next.arm(&[system_settings::APP_ID], known, Instant::now());
+    }
     open_on_demand(shell, system_settings::DOCUMENT, cx);
     let title = shell.borrow().settings_nav.feed()["title"].as_str().unwrap_or_default().to_string();
     shell.borrow().surfaces.set_title(system_settings::DOCUMENT, &title, cx);

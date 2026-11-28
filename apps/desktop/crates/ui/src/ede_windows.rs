@@ -212,6 +212,30 @@ struct PageWindows {
 
 impl Global for PageWindows {}
 
+/// #EDE-275: the settings section a link asked for (System Settings'
+/// Exponential tiles open `~/settings/<section>`), handed to the window that
+/// shows Settings: this one, the one holding it, or the one opened for it.
+#[derive(Default)]
+struct SettingsSectionHandoff(Option<crate::settings::SettingsSection>);
+
+impl Global for SettingsSectionHandoff {}
+
+/// A link's settings section, for the window that will show Settings.
+pub(crate) fn hand_settings_section(section: crate::settings::SettingsSection, cx: &mut App) {
+    cx.set_global(SettingsSectionHandoff(Some(section)));
+}
+
+/// `window` shows Settings: it takes the section a link handed over.
+pub(crate) fn take_settings_section(window: &mut Window, cx: &mut App) {
+    let shows = shown(window.window_handle().window_id(), cx) == Some(Screen::Settings);
+    if !shows {
+        return;
+    }
+    if let Some(section) = cx.default_global::<SettingsSectionHandoff>().0.take() {
+        crate::sidebar::select_settings_section(window, cx, section);
+    }
+}
+
 /// The holder's windows as the bus hands them out.
 pub fn window_board() -> Arc<WindowBoard> {
     static BOARD: OnceLock<Arc<WindowBoard>> = OnceLock::new();
@@ -266,6 +290,7 @@ pub(crate) fn register(window: &mut Window, cx: &mut App) {
         }
         if let Some(screen) = page.screen {
             navigation::navigate_from_rail(window, cx, screen);
+            take_settings_section(window, cx);
         }
         let handle = window.window_handle();
         cx.defer(move |cx| {
@@ -388,6 +413,7 @@ pub(crate) fn route(window: &Window, screen: &Screen, cx: &mut App) -> bool {
                     // The same page, maybe another state of it (a session
                     // of the chat, the app's editor): a move in its window.
                     navigation::navigate(window, cx, landing);
+                    take_settings_section(window, cx);
                     window.activate_window();
                 });
                 // A window opened for this navigation is not needed.

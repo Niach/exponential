@@ -321,7 +321,10 @@ the holder's window over the session bus (`open {link: ~/settings/…}` or
 `page {key: device:}`, with the press's activation token), one
 implementation of those pages, as Cinnamon's tiles that are tools of
 their own; signed out, the module's page in the window asks to Connect
-Exponential. Share Desktop (the Local desktop's Share as a team…) stays
+Exponential. The holder hands a settings link's section to the window
+that shows Settings (the one holding it, or the one opened for it), and
+the shell brings its own settings window forward through the compositor
+(a single instance raised without a token would only ask for attention). Share Desktop (the Local desktop's Share as a team…) stays
 the shell's own module. #EDE-274: a module with pages (Sound, Windows, Keyboard) has
 cinnamon-settings' stack switcher in the header (`tab`); on the grid the
 keyboard is in the search (the window opening, Back, Alt+Left). Themes
