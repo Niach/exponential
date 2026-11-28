@@ -238,7 +238,7 @@ public struct TraceLine<Icon: View, Accessory: View>: View {
             titleText
             if let description {
                 Text(verbatim: description)
-                    .font(.system(size: g.fontSize * scale).monospacedDigit())
+                    .font(.exp(size: g.fontSize * scale).monospacedDigit())
                     .foregroundStyle(
                         error
                             ? DesignTokens.Palette.destructive.opacity(Trace.Geometry.descriptionAlpha)
@@ -257,7 +257,7 @@ public struct TraceLine<Icon: View, Accessory: View>: View {
     @ViewBuilder
     private var titleText: some View {
         let text = (marks.map { Text($0.painted(title)) } ?? Text(verbatim: title))
-            .font(.system(size: g.fontSize * scale))
+            .font(.exp(size: g.fontSize * scale))
             .lineLimit(1)
             .truncationMode(.tail)
         if error {
@@ -311,7 +311,7 @@ public struct TraceBadge: View {
     public var body: some View {
         let small = size == .sm
         Text(verbatim: text)
-            .font(.system(size: (small ? 10 : 12) * scale).monospacedDigit())
+            .font(.exp(size: (small ? 10 : 12) * scale).monospacedDigit())
             .foregroundStyle(DesignTokens.Palette.mutedForeground.opacity(Trace.Geometry.descriptionAlpha))
             .lineLimit(1)
             .fixedSize()
@@ -395,7 +395,7 @@ public struct TraceCollapsible<Line: View, Content: View>: View {
                 VStack(alignment: .leading, spacing: g.lineGap * scale) {
                     content
                 }
-                .font(.system(size: g.fontSize * scale))
+                .font(.exp(size: g.fontSize * scale))
                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, g.contentInset * scale)

@@ -93,7 +93,7 @@ public struct RepositoryPickerRowBody: View {
                 ProgressView().controlSize(.small).tint(.white)
             } else if let tag = row.tag {
                 Text(tag)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(row.emphasis ? DesignTokens.Semantic.green : .white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
             }
@@ -316,7 +316,7 @@ public struct BranchPicker<Trigger: View>: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if let errorText, !errorText.isEmpty {
                         Text(errorText)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
                     if let onRetry {
@@ -365,7 +365,7 @@ public struct BranchPicker<Trigger: View>: View {
                             .truncationMode(.middle)
                         if let tag = item.description {
                             Text(tag)
-                                .font(.caption)
+                                .font(.expCaption)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
                     }

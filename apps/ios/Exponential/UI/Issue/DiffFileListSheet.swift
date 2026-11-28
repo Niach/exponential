@@ -34,7 +34,7 @@ struct DiffFileListSheet: View {
                     // result count. ONE contract string (web
                     // `file-diff-tree.tsx` heads its list with exactly this).
                     Text(summary)
-                        .font(.caption.weight(.medium))
+                        .font(.expCaption.weight(.medium))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
@@ -112,7 +112,7 @@ struct DiffFilesBarCircle: View {
                 AppIcon(AppIcons.navFiles, size: 18, weight: .medium)
                     .foregroundStyle(.white)
                 Text("\(count)")
-                    .font(.caption2.weight(.medium))
+                    .font(.expCaption2.weight(.medium))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }

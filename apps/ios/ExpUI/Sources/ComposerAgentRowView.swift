@@ -70,7 +70,7 @@ public struct ComposerAgentRowView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: CGFloat(ComposerAgentRow.labelToRow)) {
             Text(label)
-                .font(.footnote)
+                .font(.expFootnote)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(1)
                 .padding(.horizontal, 4)

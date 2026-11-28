@@ -18,7 +18,7 @@ struct IssueTitleField: View {
 
     var body: some View {
         TextField(placeholder, text: $text)
-            .font(.title2.weight(.semibold))
+            .font(.expTitle2.weight(.semibold))
             .textFieldStyle(.plain)
             .foregroundStyle(.white)
             .focused(focused)

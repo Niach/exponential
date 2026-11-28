@@ -1235,7 +1235,7 @@ struct MainNavigator: View {
                     Text(gated.count > 1
                         ? "\(gated.count) servers need a newer app version. Their sync is paused."
                         : "\(first.displayName) needs a newer app version. Its sync is paused.")
-                        .font(.caption2)
+                        .font(.expCaption2)
                 }
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 12)
@@ -1290,7 +1290,7 @@ struct SyncHealthBanner: View {
                 Text(health == .unauthorized
                     ? "Session expired. Sign in again to keep syncing."
                     : "Can't reach the server, showing cached data")
-                    .font(.caption2)
+                    .font(.expCaption2)
             }
             .foregroundStyle(.white.opacity(0.9))
             .padding(.horizontal, 12)

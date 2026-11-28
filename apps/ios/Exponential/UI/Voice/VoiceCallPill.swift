@@ -35,10 +35,10 @@ struct VoiceCallPill: View {
             avatar
             VStack(alignment: .leading, spacing: 0) {
                 Text(callee.name)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(DesignTokens.Palette.foreground)
                 status
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(DesignTokens.Palette.mutedForeground)
             }
             .lineLimit(1)

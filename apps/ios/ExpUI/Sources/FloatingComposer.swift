@@ -63,7 +63,7 @@ extension FloatingComposer {
     fileprivate var capsule: some View {
         FloatingBarCapsule(accessibilityLabel: collapsedLabel, action: onExpand) {
             Text(placeholder)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .lineLimit(1)
         }
         .accessibilityIdentifier(collapsedIdentifier)

@@ -107,7 +107,7 @@ struct IssueLabelsPicker: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .frame(width: GlassPickerTokens.markWidth)
                 Text("Create new label \u{201C}\(trimmedQuery)\u{201D}")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 0)

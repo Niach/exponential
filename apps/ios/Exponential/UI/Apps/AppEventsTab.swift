@@ -70,7 +70,7 @@ struct AppEventsTab: View {
             if let runs {
                 if runs.isEmpty {
                     Text(Apps.EventsTab.Copy.noRuns)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 } else {
                     ForEach(Array(runs.enumerated()), id: \.offset) { _, run in
@@ -93,19 +93,19 @@ struct AppEventsTab: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.title)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     if let detail = row.detail {
                         Text(detail)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Text(RelativeTime.compact(wire: run.at))
-                    .font(.caption.monospacedDigit())
+                    .font(.expCaption.monospacedDigit())
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 GlassPill(row.badge.label)
                     .fixedSize()
@@ -256,7 +256,7 @@ struct AppWebhooksSection: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(Apps.Copy.Webhooks.secret)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                 Text(secret)

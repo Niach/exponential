@@ -283,7 +283,7 @@ struct PageHeaderDetailTitle: View {
                 .frame(width: 24, height: 24)
             }
             Text(title.text)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.exp(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .fixedSize()

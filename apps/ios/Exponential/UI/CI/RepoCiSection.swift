@@ -160,7 +160,7 @@ struct AddSecretSheet: View {
                 .accessibilityIdentifier("repo-ci-secret-form")
                 if !name.isEmpty, !validName {
                     Text(RepoCi.Copy.Secrets.invalid)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .padding(.horizontal, 12)
                         .accessibilityIdentifier("repo-ci-secret-invalid")

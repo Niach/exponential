@@ -87,7 +87,7 @@ struct RelationPickerSheet: View {
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .frame(width: GlassPickerTokens.markWidth)
                         Text(entry.title)
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .foregroundStyle(.white)
                         Spacer(minLength: 0)
                     }

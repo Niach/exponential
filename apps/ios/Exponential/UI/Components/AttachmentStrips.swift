@@ -268,10 +268,10 @@ struct SteerFileLinkRow: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: AttachmentFiles.sfSymbolName(forContentType: contentType))
-                    .font(.system(size: 13))
+                    .font(.exp(size: 13))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text(file.name)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -380,7 +380,7 @@ struct PendingAttachmentStrip<Item: PendingAttachmentItem>: View {
             .overlay(alignment: .bottomTrailing) {
                 if let durationMs = item.durationMs, durationMs > 0 {
                     Text(MediaDuration.format(ms: durationMs))
-                        .font(.system(size: 9, weight: .medium).monospacedDigit())
+                        .font(.exp(size: 9, weight: .medium).monospacedDigit())
                         .foregroundStyle(.white)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 2)
@@ -406,10 +406,10 @@ struct AttachmentFileTile: View {
     var body: some View {
         VStack(spacing: 4) {
             Image(systemName: AttachmentFiles.sfSymbolName(forContentType: contentType))
-                .font(.system(size: 18))
+                .font(.exp(size: 18))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text(filename)
-                .font(.system(size: 9))
+                .font(.exp(size: 9))
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -556,15 +556,15 @@ struct CommentAttachmentsStrip: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: AttachmentFiles.sfSymbolName(forContentType: attachment.contentType))
-                        .font(.system(size: 13))
+                        .font(.exp(size: 13))
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     Text(attachment.filename)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text(Int64(attachment.sizeBytes).formatted(.byteCount(style: .file)))
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     if downloadingId == attachment.id {
                         ProgressView()

@@ -83,7 +83,7 @@ public struct SessionRow<Lead: View>: View {
                             .fixedSize()
                     }
                     Text(title)
-                        .font(unread ? .subheadline.weight(.semibold) : .subheadline)
+                        .font(unread ? .expSubheadline.weight(.semibold) : .expSubheadline)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -96,7 +96,7 @@ public struct SessionRow<Lead: View>: View {
                         AppIcon(wordIcon, size: 11)
                     }
                     Text(word)
-                        .font(.caption)
+                        .font(.expCaption)
                         .lineLimit(1)
                 }
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))

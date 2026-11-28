@@ -198,7 +198,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
             segmentFill: GlassSegmentedControlTokens.activeFill,
             inset: GlassSegmentedControlTokens.capsulePadding,
             horizontalPadding: hugging ? GlassSegmentedControlTokens.huggingPadding : 0,
-            font: .subheadline.weight(.medium),
+            font: .expSubheadline.weight(.medium),
             capsule: true,
             minimumHeight: true,
             segmentVerticalPadding: GlassSegmentedControlTokens.segmentVerticalPadding,
@@ -251,7 +251,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
                             // moves. A semibold/regular swap re-flowed the strip on
                             // every tap and made two adjacent segments look like
                             // two type scales.
-                            .font(.subheadline.weight(.medium))
+                            .font(.expSubheadline.weight(.medium))
                             .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
@@ -264,7 +264,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
             let count = badge(option)
             if count > 0 {
                 Text("\(count)")
-                    .font(.caption2.weight(.semibold))
+                    .font(.expCaption2.weight(.semibold))
                     .foregroundStyle(DesignTokens.Palette.primaryForeground)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)

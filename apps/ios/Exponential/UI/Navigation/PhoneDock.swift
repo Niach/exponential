@@ -145,7 +145,7 @@ struct PhoneDock: View {
                         .offset(x: 8, y: -6)
                 }
             Text(tab.label)
-                .font(.system(size: PhoneDockMetrics.label, weight: .medium))
+                .font(.exp(size: PhoneDockMetrics.label, weight: .medium))
                 .lineLimit(1)
         }
         .foregroundStyle(lit ? DesignTokens.Palette.foreground : DesignTokens.Palette.mutedForeground)
@@ -230,7 +230,7 @@ struct PhoneDock: View {
                 AppIcon(AppIcons.conceptOrName(icon) ?? AppIcons.uiAdd, size: AppIcon.Size.large)
                     .frame(width: 20, height: 20)
                 Text(label)
-                    .font(.system(size: 15))
+                    .font(.exp(size: 15))
                 Spacer(minLength: 0)
                 CountBadge(badge)
             }

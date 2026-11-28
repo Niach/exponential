@@ -204,11 +204,11 @@ struct ServerDetailView: View {
                     let name = memberDisplayName(identityUser, id: account?.userId)
                     // Web's 16 / 14.
                     Text(name)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.exp(size: 16, weight: .medium))
                         .foregroundStyle(.white)
                     if let email = account?.userEmail, !email.isEmpty, email != name {
                         Text(email)
-                            .font(.system(size: 14))
+                            .font(.exp(size: 14))
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
                 }
@@ -227,15 +227,15 @@ struct ServerDetailView: View {
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(account?.displayName ?? "")
-                            .font(.body)
+                            .font(.expBody)
                             .foregroundStyle(.white)
                         if let email = account?.userEmail, !email.isEmpty {
                             Text(email)
-                                .font(.caption)
+                                .font(.expCaption)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
                         Text(account?.token == nil ? "Signed out" : "Signed in")
-                            .font(.caption2)
+                            .font(.expCaption2)
                             .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                     }
                 Spacer()
@@ -407,7 +407,7 @@ struct ServerDetailView: View {
             GlassSectionBand("Danger zone", danger: true)
             HStack(spacing: 12) {
                 Text("Permanently delete your account and every team where you are the only member.")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 DestructiveButton(
@@ -445,7 +445,7 @@ struct ServerDetailView: View {
                 .foregroundStyle(tint.opacity(tint == .red ? 0.85 : TextOpacity.secondary))
                 .frame(width: 22)
             Text(title)
-                .font(.body)
+                .font(.expBody)
                 .foregroundStyle(tint == .red ? .red.opacity(0.9) : .white)
             Spacer()
         }

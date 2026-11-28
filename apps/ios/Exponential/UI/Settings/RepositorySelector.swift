@@ -110,7 +110,7 @@ struct BoardRepoField: View {
             // The ONE explanatory line under the block — byte-identical on
             // every client (lib/board-copy.ts, gated by board-copy.test.ts).
             Text("Sessions start from here.")
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
         .task(id: teamId) { await load() }
@@ -162,11 +162,11 @@ struct BoardRepoField: View {
         ) {
             HStack(spacing: 10) {
                 Text("Default repository")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.primary))
                 Spacer(minLength: 8)
                 Text(triggerLabel)
-                    .font(selectedFullName == nil ? .subheadline : .expMono(.subheadline))
+                    .font(selectedFullName == nil ? .expSubheadline : .expMono(.subheadline))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -196,7 +196,7 @@ struct BoardRepoField: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .frame(width: GlassPickerTokens.markWidth)
                 Text(connectLabel)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.primary))
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -258,7 +258,7 @@ struct BoardRepoField: View {
                 }
             ), horizontalPadding: 12, verticalPadding: 10) {
                 Text("Branch")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.primary))
             } trailing: {
                 EmptyView()
@@ -344,7 +344,7 @@ private struct BranchPickerRow: View {
         ) {
             HStack(spacing: 10) {
                 Text("Branch")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.primary))
                 Spacer(minLength: 8)
                 Text(value)

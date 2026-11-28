@@ -62,14 +62,14 @@ struct NotificationActionsSpecimen: View {
                 .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(sample.title).font(.system(size: 15, weight: .semibold))
+                    Text(sample.title).font(.exp(size: 15, weight: .semibold))
                     Spacer()
                     Text("now")
-                        .font(.system(size: 13))
+                        .font(.exp(size: 13))
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 Text(sample.body)
-                    .font(.system(size: 15))
+                    .font(.exp(size: 15))
                     .foregroundStyle(.white.opacity(TextOpacity.primary))
                     .lineLimit(3)
             }
@@ -84,7 +84,7 @@ struct NotificationActionsSpecimen: View {
             ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
                 if index > 0 { Divider().overlay(Color.white.opacity(0.12)) }
                 Text(title)
-                    .font(.system(size: 17))
+                    .font(.exp(size: 17))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)

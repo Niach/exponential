@@ -145,7 +145,7 @@ struct CodingReadinessSheet: View {
     private func header(_ readiness: CodingReadiness.Readiness) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(readiness.summary)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: ReadinessSheetTokens.segmentGap) {
@@ -200,13 +200,13 @@ struct CodingReadinessSheet: View {
                         .foregroundStyle(ReadinessSheetTokens.green)
                 }
             Text(step.title)
-                .font(.callout)
+                .font(.expCallout)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(1)
             Spacer(minLength: 8)
             if let detail = step.detail {
                 Text(detail)
-                    .font(.footnote)
+                    .font(.expFootnote)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -221,12 +221,12 @@ struct CodingReadinessSheet: View {
             stepIcon(step)
             VStack(alignment: .leading, spacing: 4) {
                 Text(step.title)
-                    .font(.callout.weight(current ? .medium : .regular))
+                    .font(.expCallout.weight(current ? .medium : .regular))
                     .foregroundStyle(.white)
                     .fixedSize(horizontal: false, vertical: true)
                 if let body = step.body {
                     Text(body)
-                        .font(.system(size: 14))
+                        .font(.exp(size: 14))
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -292,7 +292,7 @@ struct CodingReadinessSheet: View {
             perform(fix)
         } label: {
             Text(fix.label)
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(primary ? Color.black : Color.white)
                 .lineLimit(1)
                 .padding(.horizontal, ReadinessSheetTokens.fixHPadding)
@@ -348,7 +348,7 @@ struct CodingReadinessSheet: View {
             HStack(spacing: 8) {
                 AppIcon(AppIcons.actionRun, size: AppIcon.Size.medium, weight: .medium)
                 Text(CodingReadiness.Copy.start)
-                    .font(.body.weight(.medium))
+                    .font(.expBody.weight(.medium))
             }
             .foregroundStyle(ready ? Color.black : Color.white.opacity(TextOpacity.quaternary))
             .frame(maxWidth: .infinity)
@@ -412,7 +412,7 @@ struct CodingReadinessRepoPickerSheet: View {
                         .padding(.vertical, 20)
                 } else if rows.isEmpty && query.isEmpty {
                     Text(CodingReadiness.Copy.pickerEmpty)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 14)
@@ -456,7 +456,7 @@ struct CodingReadinessRepoPickerSheet: View {
             HStack(spacing: 10) {
                 AppIcon(AppIcons.uiGithub, size: AppIcon.Size.small)
                 Text(CodingReadiness.Copy.pickerAddFromGithub)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }

@@ -258,13 +258,13 @@ public struct DockCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(row.label)
-                        .font(.caption.weight(.medium))
+                        .font(.expCaption.weight(.medium))
                         .foregroundStyle(row.tint.color)
                         .lineLimit(1)
                         .layoutPriority(1)
                     if let caption = row.caption, !caption.isEmpty {
                         Text(caption)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -272,7 +272,7 @@ public struct DockCard: View {
                     if let meta = row.meta, !meta.isEmpty {
                         Spacer(minLength: 0)
                         Text(meta)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                             .fixedSize()
@@ -280,7 +280,7 @@ public struct DockCard: View {
                 }
                 HStack(spacing: 8) {
                     Text(row.title)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(0.9))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -418,13 +418,13 @@ public struct DockSheetHeader: View {
             AppIcon(DockMetrics.glyph(row.icon), size: 14)
                 .foregroundStyle(row.tint.color)
             Text(row.label)
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .foregroundStyle(row.tint.color)
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
             if let caption = row.caption, !caption.isEmpty {
                 Text(caption)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -432,7 +432,7 @@ public struct DockSheetHeader: View {
             Spacer(minLength: 0)
             if let meta, !meta.isEmpty {
                 Text(meta)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .fixedSize()
                     .accessibilityIdentifier(PlanCard.TestIds.step)

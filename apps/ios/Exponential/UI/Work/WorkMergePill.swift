@@ -143,7 +143,7 @@ struct WorkMergePill: View {
         ) {
             glyph(size: FloatingBarTokens.glyph, spinnerTint: .black.opacity(0.6), glyphColor: nil)
             Text(view.label)
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .lineLimit(1)
         }
         .fixedSize()

@@ -57,7 +57,7 @@ struct WidgetSubmissionCard: View {
                     AppIcon(isAgent ? AppIcons.uiAgentSource : AppIcons.uiWidget, size: 12)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     Text(isAgent ? "Reported by agent" : "Reported via widget")
-                        .font(.callout.weight(.medium))
+                        .font(.expCallout.weight(.medium))
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(1)
                     Spacer(minLength: 8)
@@ -111,7 +111,7 @@ struct WidgetSubmissionCard: View {
         HStack(alignment: .top, spacing: 8) {
             rowLabel(label)
             Text(value)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -119,7 +119,7 @@ struct WidgetSubmissionCard: View {
 
     private func rowLabel(_ label: String) -> some View {
         Text(label)
-            .font(.caption)
+            .font(.expCaption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             .frame(width: 80, alignment: .leading)
     }

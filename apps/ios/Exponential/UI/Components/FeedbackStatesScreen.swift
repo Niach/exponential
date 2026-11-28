@@ -29,7 +29,7 @@ struct FeedbackStatesScreen: View {
                             // web `count={3} loading` (Android's trailing "3").
                             GlassSectionHeader("MCP servers", loading: true) {
                                 Text("3")
-                                    .font(.caption)
+                                    .font(.expCaption)
                                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             }
                         }
@@ -94,7 +94,7 @@ struct FeedbackStatesScreen: View {
                                             .strokeBorder(DesignTokens.Semantic.red, lineWidth: 1)
                                     )
                                 Text("Enter a full email address")
-                                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                                    .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                                     .foregroundStyle(DesignTokens.Semantic.red)
                             }
                         }
@@ -128,7 +128,7 @@ struct FeedbackStatesScreen: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("\(index) · \(title)")
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(.white)
             content()
         }
@@ -144,7 +144,7 @@ struct FeedbackStatesScreen: View {
     private func band<Trailing: View>(_ title: String, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack {
             Text(title)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white)
             Spacer(minLength: 8)
             trailing()

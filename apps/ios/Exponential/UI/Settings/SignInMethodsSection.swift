@@ -228,11 +228,11 @@ struct SignInMethodsSection: View {
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(2)
             }
@@ -251,7 +251,7 @@ struct SignInMethodsSection: View {
             // Apple's brand mark, not a registry glyph (login-screen exception:
             // Lucide has no Apple logo, guideline 4.8).
             Image(systemName: "apple.logo")
-                .font(.body.weight(.medium))
+                .font(.expBody.weight(.medium))
                 .foregroundStyle(.white)
         case "google":
             GoogleLogoMark()

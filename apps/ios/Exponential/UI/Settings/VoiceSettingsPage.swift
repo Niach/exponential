@@ -378,7 +378,7 @@ struct VoiceSettingsBlock: View {
             Section {
                 VStack(spacing: 12) {
                     Text(FeedbackStates.Errors.title(verb: "load", thing: "the voice settings"))
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
                         Task { await model.load() }
@@ -442,7 +442,7 @@ struct VoiceSettingsBlock: View {
                 // FieldError; the bare field itself draws no border.
                 if agentRows, let wakePhraseError = model.wakePhraseError {
                     Text(wakePhraseError)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("\(Voice.TestIds.wakePhrase)-error")

@@ -320,7 +320,7 @@ struct ShareComposeView: View {
             }
             if let error {
                 Section {
-                    Text(error).foregroundStyle(.red).font(.footnote)
+                    Text(error).foregroundStyle(.red).font(.expFootnote)
                 }
             }
         }
@@ -377,7 +377,7 @@ struct ShareMessageView: View {
     private var page: some View {
         VStack(spacing: 16) {
             Image(systemName: "tray")
-                .font(.largeTitle)
+                .font(.expLargeTitle)
                 .foregroundStyle(.secondary)
             Text(message)
                 .multilineTextAlignment(.center)

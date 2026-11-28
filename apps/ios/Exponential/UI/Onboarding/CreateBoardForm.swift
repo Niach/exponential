@@ -158,7 +158,7 @@ struct CreateBoardForm: View {
                     get: { draft.name },
                     set: { draft.onNameChange($0) }
                 ), verticalPadding: 9)
-                .font(.subheadline)
+                .font(.expSubheadline)
             }
 
             // The prefix rides its own glass row with the label INSIDE it —
@@ -166,7 +166,7 @@ struct CreateBoardForm: View {
             if !minimal {
                 HStack(spacing: 8) {
                     Text("Prefix")
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.primary))
                     Spacer(minLength: 8)
                     GlassTextField("API", text: Binding(
@@ -186,7 +186,7 @@ struct CreateBoardForm: View {
             // FEED-79: a taken name/prefix is input, right under its fields.
             if let errorText = draft.errorText {
                 Text(errorText)
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
 
@@ -208,7 +208,7 @@ struct CreateBoardForm: View {
                     AppIcon(AppIcons.navGettingStarted, size: AppIcon.Size.small)
                         .foregroundStyle(DesignTokens.Semantic.blue)
                     Text(limitText)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
                 .padding(.horizontal, 12)

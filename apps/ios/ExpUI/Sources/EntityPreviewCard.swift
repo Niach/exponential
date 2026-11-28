@@ -123,7 +123,7 @@ public struct EntityPreviewCard<Icon: View, Facts: View>: View {
             }
             if let more, !more.isEmpty {
                 Text(more)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .padding(.horizontal, 12)
             }
@@ -147,13 +147,13 @@ public struct EntityPreviewCard<Icon: View, Facts: View>: View {
                         .lineLimit(1)
                 }
                 Text(title)
-                    .font(.headline)
+                    .font(.expHeadline)
                     .foregroundStyle(.white)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -173,7 +173,7 @@ public struct EntityPreviewCard<Icon: View, Facts: View>: View {
     private func excerptBlock(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(text)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(expanded ? nil : collapsedLines)
                 .fixedSize(horizontal: false, vertical: true)
@@ -183,7 +183,7 @@ public struct EntityPreviewCard<Icon: View, Facts: View>: View {
                     expanded = true
                 } label: {
                     Text("Show more")
-                        .font(.caption.weight(.medium))
+                        .font(.expCaption.weight(.medium))
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
                 .buttonStyle(.plain)
@@ -213,12 +213,12 @@ public struct EntityPreviewCard<Icon: View, Facts: View>: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.primary)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 if let secondary = row.secondary, !secondary.isEmpty {
                     Text(secondary)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
                 }

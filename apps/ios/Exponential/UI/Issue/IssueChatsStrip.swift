@@ -84,7 +84,7 @@ struct IssueChatsStrip: View {
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             Text(SessionTree.ListCopy.title)
-                .font(.footnote)
+                .font(.expFootnote)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .fixedSize()
             ScrollView(.horizontal) {

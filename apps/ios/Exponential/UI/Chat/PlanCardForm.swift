@@ -130,13 +130,13 @@ struct PlanCardQuestionBlock: View {
                 VStack(alignment: .leading, spacing: PlanCard.Card.blockInnerGap) {
                     if let prompt, !prompt.isEmpty {
                         Text(prompt)
-                            .font(.caption.weight(.semibold))
+                            .font(.expCaption.weight(.semibold))
                             .foregroundStyle(.white)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if let caption {
                         Text(caption)
-                            .font(.caption2)
+                            .font(.expCaption2)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                 }
@@ -203,7 +203,7 @@ struct PlanCardQuestionBlock: View {
                 )
                 if customText.count >= Self.limitNoticeFrom {
                     Text("\(customText.count)/\(PlanCard.labelMax)")
-                        .font(.caption2.monospacedDigit())
+                        .font(.expCaption2.monospacedDigit())
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .accessibilityIdentifier("\(PlanCard.TestIds.custom)-limit")
                 }
@@ -295,7 +295,7 @@ struct PlanCardFooter: View {
             }
             if let decision, !decision.rejecting, let issue = decision.approveIssue {
                 Text(issue)
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(DesignTokens.Semantic.yellow)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .accessibilityIdentifier(PlanCard.TestIds.issue)
@@ -316,7 +316,7 @@ private struct PlanCardSecondaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .foregroundStyle(DesignTokens.Palette.secondaryForeground)
                 .lineLimit(1)
                 .fixedSize()
@@ -346,7 +346,7 @@ private struct PlanCardApproveButton: View {
         HStack(spacing: 0) {
             Button { onDecide(approve) } label: {
                 Text(approve.label)
-                    .font(.caption.weight(.medium))
+                    .font(.expCaption.weight(.medium))
                     .lineLimit(1)
                     .fixedSize()
                     .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
@@ -414,7 +414,7 @@ struct PlanCardField: View {
             minHeight: multiline ? PlanCard.Card.fieldMinHeight : PlanCard.Card.rowMinHeight,
             accessibilityIdentifier: identifier
         )
-        .font(.caption)
+        .font(.expCaption)
     }
 }
 
@@ -452,12 +452,12 @@ struct PlanCardOptionRow: View {
             }
             VStack(alignment: .leading, spacing: PlanCard.Card.blockInnerGap) {
                 Text(option.label)
-                    .font(.caption.weight(.medium))
+                    .font(.expCaption.weight(.medium))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.leading)
                 if let description = option.description, !description.isEmpty {
                     Text(description)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .multilineTextAlignment(.leading)
                 }
@@ -490,7 +490,7 @@ struct PlanCardOptionRow: View {
             }
             .frame(width: Self.glyph, height: Self.glyph)
             Text(option.label)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(picked ? TextOpacity.primary : PlanCard.Card.inertOpacity))
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -609,7 +609,7 @@ struct PlanCardSurfaceView: View {
         VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
             if caption {
                 Text(PlanCard.Copy.surface)
-                    .font(.caption2.weight(.medium))
+                    .font(.expCaption2.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             content
@@ -637,7 +637,7 @@ struct PlanCardSurfaceView: View {
         // Without the painter linked: a quiet placeholder band.
         if bare {
             Text(PlanCard.Copy.surface)
-                .font(.footnote)
+                .font(.expFootnote)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }

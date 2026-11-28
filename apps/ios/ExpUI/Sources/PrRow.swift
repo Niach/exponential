@@ -108,19 +108,19 @@ public struct PrRow<Trailing: View>: View {
             if let subtitle, hasSubtitle {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Text(subtitle)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(DesignTokens.Palette.mutedForeground)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
             } else {
                 Text(title)
-                    .font(base ? .expMono(.caption) : .subheadline)
+                    .font(base ? .expMono(.caption) : .expSubheadline)
                     .foregroundStyle(base ? .white.opacity(TextOpacity.tertiary) : .white)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -128,7 +128,7 @@ public struct PrRow<Trailing: View>: View {
             Spacer(minLength: 0)
             if let word, !word.isEmpty {
                 Text(word)
-                    .font(.system(size: 11.5))
+                    .font(.exp(size: 11.5))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .fixedSize()

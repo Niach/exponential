@@ -65,7 +65,7 @@ struct SessionBlockedBadge: View {
             HStack(spacing: 4) {
                 AppIcon(AppIcons.uiClock, size: 10)
                 Text(label)
-                    .font(.caption2.weight(.semibold))
+                    .font(.expCaption2.weight(.semibold))
                     .lineLimit(1)
             }
             .foregroundStyle(DesignTokens.Semantic.yellow)

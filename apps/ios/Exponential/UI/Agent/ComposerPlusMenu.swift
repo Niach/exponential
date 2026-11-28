@@ -111,7 +111,7 @@ struct ComposerPlusMenu: View {
             GlassToggleRow(label, isOn: toggleBinding(row.id)) {
                 ComposerMenuRowIcon(concept: row.icon)
             }
-            .font(.body)
+            .font(.expBody)
             .padding(.horizontal, 12)
             .frame(minHeight: 48)
             .accessibilityIdentifier(ComposerMenu.rowTestId(row.id))
@@ -323,12 +323,12 @@ struct ComposerMenuRowLabel: View {
         HStack(spacing: 12) {
             ComposerMenuRowIcon(concept: row.icon)
             Text(label)
-                .font(.body)
+                .font(.expBody)
                 .foregroundStyle(.white)
             Spacer(minLength: 8)
             if let value, !value.isEmpty {
                 Text(value)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -358,7 +358,7 @@ struct ComposerMenuPage<Content: View>: View {
                 HStack(spacing: 8) {
                     AppIcon(AppIcons.uiChevronLeft, size: 14)
                     Text(ComposerMenu.row(id).label)
-                        .font(.headline)
+                        .font(.expHeadline)
                     Spacer(minLength: 0)
                 }
                 .foregroundStyle(.white)

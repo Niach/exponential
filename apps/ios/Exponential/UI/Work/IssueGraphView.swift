@@ -33,7 +33,7 @@ struct IssueGraphView: View {
     var body: some View {
         if graph.nodes.isEmpty {
             Text("Nothing blocks this work.")
-                .font(.caption2)
+                .font(.expCaption2)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
@@ -120,7 +120,7 @@ struct BlocksBadge: View {
         HStack(spacing: 2) {
             AppIcon(icon, size: 12)
             Text("\(count)")
-                .font(.system(size: 11).monospacedDigit())
+                .font(.exp(size: 11).monospacedDigit())
                 .lineLimit(1)
         }
         .foregroundStyle(color)

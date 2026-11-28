@@ -547,7 +547,7 @@ private struct SessionTabsSpecimens: View {
 
     private func caption(_ text: String) -> some View {
         Text(text)
-            .font(.caption)
+            .font(.expCaption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 }
@@ -630,7 +630,7 @@ private struct AskDockSpecimens: View {
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             content()
         }
@@ -703,10 +703,10 @@ private struct DockCardSpecimens: View {
             DockSheetSpecimenFrame(row: question, height: 300) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Ship both fixes in one PR, or split them?")
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white)
                     Text(PlanCard.Copy.chooseOne)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             } footer: {
@@ -718,7 +718,7 @@ private struct DockCardSpecimens: View {
 
     private func caption(_ text: String) -> some View {
         Text(text)
-            .font(.caption)
+            .font(.expCaption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 }
@@ -840,7 +840,7 @@ private struct PlanCardSpecimens: View {
             // #EXP-1561 (waiting-cards.json): THE dismissed card lines.
             VStack(alignment: .leading, spacing: 8) {
                 Text(PlanCard.Copy.Specimen.dismissed)
-                    .font(.caption.weight(.medium))
+                    .font(.expCaption.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach([
@@ -918,7 +918,7 @@ private struct PlanCardSpecimens: View {
     private func section(_ title: String, _ row: SessionChatRow?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             if let row {
                 ChatAskCard(row: row)
@@ -989,7 +989,7 @@ private struct VoiceCallSpecimens: View {
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(DesignTokens.Palette.border, lineWidth: 1))
             Text(caption)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
         }
     }
@@ -1070,7 +1070,7 @@ private struct CallControlsSpecimens: View {
             content()
                 .frame(minHeight: 80, alignment: .top)
             Text(label)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
         }
     }
@@ -1147,7 +1147,7 @@ private struct DeviceReadinessSpecimens: View {
 
     private func caption(_ text: String) -> some View {
         Text(text)
-            .font(.caption)
+            .font(.expCaption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 }

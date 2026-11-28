@@ -94,7 +94,7 @@ struct PrChecksMenuBackRow: View {
             HStack(spacing: 8) {
                 AppIcon(AppIcons.uiChevronLeft, size: 14)
                 Text(PrChecks.Copy.checks)
-                    .font(.headline)
+                    .font(.expHeadline)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.white)

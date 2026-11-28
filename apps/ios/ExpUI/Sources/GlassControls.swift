@@ -76,7 +76,7 @@ public struct GlassSubmitLabel<Icon: View>: View {
         ) {
             icon
         }
-        .font(compact || small ? .subheadline.weight(.medium) : .body.weight(.medium))
+        .font(compact || small ? .expSubheadline.weight(.medium) : .expBody.weight(.medium))
         .foregroundStyle(outline ? Color.white : DesignTokens.Palette.primaryForeground)
         .frame(maxWidth: compact || small ? nil : .infinity)
         .frame(height: small ? GlassPillTokens.heightMd : nil)
@@ -206,7 +206,7 @@ public struct DestructiveButton: View {
                 Text(label)
                     .lineLimit(1)
             }
-            .font(.caption.weight(.medium))
+            .font(.expCaption.weight(.medium))
             .foregroundStyle(Color.white)
             .padding(.horizontal, DestructiveButtonTokens.horizontalPadding)
             .frame(height: DestructiveButtonTokens.height)
@@ -244,7 +244,7 @@ public struct GlassOAuthButton<Icon: View>: View {
                 icon
                 Text(label)
             }
-            .font(.body.weight(.medium))
+            .font(.expBody.weight(.medium))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)

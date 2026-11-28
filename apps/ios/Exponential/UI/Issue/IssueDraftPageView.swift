@@ -381,7 +381,7 @@ struct IssueDraftPageView: View {
                     if let chat = vm.chat {
                         HStack(spacing: 6) {
                             Text(draftInChatPrefix)
-                                .font(.footnote)
+                                .font(.expFootnote)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .fixedSize()
                             IssueChatChip(chat: chat) {}

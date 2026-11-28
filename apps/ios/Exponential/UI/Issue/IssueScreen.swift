@@ -110,10 +110,10 @@ struct IssueScreen: View {
     private func unavailableState(vm: IssueDetailViewModel) -> some View {
         VStack(spacing: 12) {
             Text("This issue isn't available yet")
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text("It may still be syncing, or you may not have access to it.")
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
             GlassPill("Try again", size: .md, mode: .action { vm.retryLoad() })

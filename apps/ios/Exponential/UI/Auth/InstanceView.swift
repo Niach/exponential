@@ -59,7 +59,7 @@ struct InstanceView: View {
                                 onCancel?()
                             } label: {
                                 Text("Cancel")
-                                    .font(.body)
+                                    .font(.expBody)
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
@@ -111,7 +111,7 @@ struct InstanceView: View {
                 AppIcon(AppIcons.uiStaging, size: AppIcon.Size.small)
                     .foregroundStyle(.orange)
                 Text("Staging · \(URL(string: AppConstants.defaultCloudUrl)?.host ?? AppConstants.defaultCloudUrl)")
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.orange)
             }
             .padding(.horizontal, 4)
@@ -121,7 +121,7 @@ struct InstanceView: View {
                 GlassOAuthButton("Continue with Apple", action: { vm.startCloudApple() }) {
                     // Apple's brand mark, not a registry glyph (see LoginView).
                     Image(systemName: "apple.logo")
-                        .font(.body.weight(.medium))
+                        .font(.expBody.weight(.medium))
                 }
             }
             if vm.googleAvailable {
@@ -168,7 +168,7 @@ struct InstanceView: View {
                 withAnimation(motion.standard) { showSelfHost = true }
             } label: {
                 Text("Use a self-hosted instance")
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
@@ -186,7 +186,7 @@ struct InstanceView: View {
     private var selfHostSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Server URL")
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
             GlassTextField(

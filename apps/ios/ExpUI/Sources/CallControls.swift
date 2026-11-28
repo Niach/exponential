@@ -46,7 +46,7 @@ public struct CallButton: View {
             .accessibilityAddTraits(toggled ? .isSelected : [])
             if let caption {
                 Text(caption)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(DesignTokens.Palette.mutedForeground)
                     .accessibilityHidden(true)
             }

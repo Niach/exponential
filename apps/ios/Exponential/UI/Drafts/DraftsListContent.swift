@@ -52,7 +52,7 @@ struct DraftsListContent: View {
                 .frame(width: 16)
 
             Text(untitled ? IssueDraftPage.untitled : row.draft.title)
-                .font(.system(size: 14))
+                .font(.exp(size: 14))
                 .italic(untitled)
                 .foregroundStyle(.white.opacity(untitled ? TextOpacity.secondary : TextOpacity.primary))
                 .lineLimit(1)
@@ -63,7 +63,7 @@ struct DraftsListContent: View {
                 AppIcon(BoardTypeDisplay.iconName(for: row.board), size: 12)
                     .foregroundStyle(Color(hex: row.board.color ?? "#888888") ?? .gray)
                 Text(row.board.name)
-                    .font(.system(size: 12))
+                    .font(.exp(size: 12))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
             }
@@ -71,7 +71,7 @@ struct DraftsListContent: View {
             .fixedSize(horizontal: true, vertical: false)
 
             Text(relativeWireDate(row.draft.updatedAt))
-                .font(.system(size: 12).monospacedDigit())
+                .font(.exp(size: 12).monospacedDigit())
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(1)
         }

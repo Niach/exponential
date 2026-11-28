@@ -23,7 +23,7 @@ public struct CountBadge: View {
         let label = NavBadges.countBadgeLabel(count)
         if !label.isEmpty {
             Text(label)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.exp(size: 10, weight: .semibold))
                 .monospacedDigit()
                 .lineLimit(1)
                 .foregroundStyle(tone == .attention ? Color.black : DesignTokens.Palette.mutedForeground)

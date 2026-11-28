@@ -88,7 +88,7 @@ struct GithubRepoPicker: View {
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small).tint(.white)
                 Text(GithubCopy.pickerLoading)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Spacer(minLength: 0)
             }
@@ -119,7 +119,7 @@ struct GithubRepoPicker: View {
             AppIcon(AppIcons.uiGithub, size: AppIcon.Size.small)
                 .padding(.top, 1)
             Text(text)
-                .font(.subheadline)
+                .font(.expSubheadline)
             Spacer(minLength: 0)
         }
         .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -183,7 +183,7 @@ struct GithubRepoPicker: View {
                 }
             } else if suspended.isEmpty {
                 Text(GithubCopy.nonePushable)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .frame(maxWidth: .infinity)
                     .githubBox()
@@ -200,7 +200,7 @@ struct GithubRepoPicker: View {
             AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                 .padding(.top, 1)
             Text(GithubCopy.pickerSuspended(suspended.map { $0.accountLogin }))
-                .font(.caption)
+                .font(.expCaption)
             Spacer(minLength: 0)
         }
         .foregroundStyle(DesignTokens.Palette.destructive)
@@ -220,7 +220,7 @@ struct GithubRepoPicker: View {
         if addForbidden {
             VStack(alignment: .leading, spacing: 8) {
                 Text(GithubCopy.addForbidden)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 GlassPill(GithubCopy.reconnectGithub, icon: AppIcons.uiRefresh, mode: .action { connect(data) }, enabled: !connecting)
             }
@@ -240,7 +240,7 @@ struct GithubRepoPicker: View {
         }
         VStack(alignment: .leading, spacing: 8) {
             Text(GithubCopy.footerExplain)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             if !manageLinks.isEmpty {
                 FlowLayout(spacing: 0) {
@@ -258,13 +258,13 @@ struct GithubRepoPicker: View {
                                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             }
                         }
-                        .font(.caption)
+                        .font(.expCaption)
                     }
                 }
             }
             if data.hasMore {
                 Text(GithubCopy.capNote)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
             FlowLayout(spacing: 8) {
@@ -313,7 +313,7 @@ struct GithubRepoPicker: View {
             }
             if let lookupError {
                 Text(lookupError)
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
         }

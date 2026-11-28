@@ -179,7 +179,7 @@ struct DockWatchesSheet: View {
                     watchRow(watch)
                 }
             }
-            .font(.caption)
+            .font(.expCaption)
             .foregroundStyle(.white)
             // The rows pad themselves (as the suggested tasks' sheet).
             .padding(.horizontal, -12)

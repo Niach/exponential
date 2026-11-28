@@ -136,7 +136,7 @@ public struct PlanPictureCarousel<Slide: View>: View {
             .scrollIndicators(.hidden)
             .overlay(alignment: .topLeading) {
                 Text("\((page ?? 0) + 1) / \(count)")
-                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .font(.expCaption2.weight(.semibold).monospacedDigit())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
@@ -183,7 +183,7 @@ public struct PlanOutlineList: View {
         let rowHeight = CGFloat(PlanPage.Layout.outlineRowHeight)
         VStack(alignment: .leading, spacing: 2) {
             Text(PlanPage.Copy.outline.uppercased())
-                .font(.caption2.weight(.medium))
+                .font(.expCaption2.weight(.medium))
                 .tracking(0.6)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .padding(.horizontal, 10)
@@ -203,7 +203,7 @@ public struct PlanOutlineList: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .padding(.horizontal, 10)
                     .frame(height: rowHeight)
                     .background(on ? GlassTokens.fillActive : Color.clear, in: RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
@@ -233,7 +233,7 @@ public struct PlanOutlineList: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     Spacer(minLength: 0)
                 }
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .padding(.horizontal, 10)
                 .frame(height: rowHeight)
             }

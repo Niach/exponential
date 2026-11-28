@@ -67,7 +67,7 @@ struct AttachmentMarkdownPreviewSheet: View {
             pinnedHeader: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(AttachmentFiles.markdownPreviewSubtitle(sizeBytes: attachment.sizeBytes))
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,13 +110,13 @@ struct AttachmentMarkdownPreviewSheet: View {
             )
         case .tooLarge:
             Text("This file is too large to preview here. Download it to read it.")
-                .font(.callout)
+                .font(.expCallout)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.vertical, 24)
         case .failed:
             // Web's line for the same state (no toast: the load ran on open).
             Text("No preview. Download it to read it.")
-                .font(.callout)
+                .font(.expCallout)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.vertical, 24)
         }

@@ -488,7 +488,7 @@ struct AgentsView: View {
             }
             if !offline.isEmpty {
                 Text(DevicesList.Copy.offline)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .padding(.horizontal, 4)
                 LazyVGrid(columns: columns, alignment: .leading, spacing: DevicesList.Card.gap) {
@@ -532,7 +532,7 @@ struct AgentsView: View {
                     // applies here.
                     if device.owner == nil, !device.sharedTeamIds.isEmpty {
                         Text("Shared")
-                            .font(.caption2)
+                            .font(.expCaption2)
                             .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                             .lineLimit(1)
                             .fixedSize()
@@ -667,7 +667,7 @@ struct AgentsView: View {
                 Text(lastSeenCaption(device))
             }
         }
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 

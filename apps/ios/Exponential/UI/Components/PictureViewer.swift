@@ -127,7 +127,7 @@ struct PictureViewer: View {
                     ) { step(-1) }
                     .accessibilityIdentifier("picture-viewer-prev")
                     Text("\(index + 1) / \(pictures.items.count)")
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .accessibilityIdentifier("picture-viewer-index")
@@ -218,7 +218,7 @@ private struct PictureViewerPage: View {
                     .tint(.white)
             case .failed:
                 Text("Image unavailable")
-                    .font(.callout)
+                    .font(.expCallout)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             case let .ready(picture):
                 // #EXP-1949: THE image menu on the picture on screen (its taps,

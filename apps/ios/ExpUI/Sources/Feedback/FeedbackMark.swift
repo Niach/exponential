@@ -145,7 +145,7 @@ public struct BlockingOverlay: View {
             VStack(spacing: CGFloat(FeedbackStates.Blocking.gap)) {
                 FeedbackMark(size: CGFloat(FeedbackStates.Blocking.markSize), animated: animated)
                 Text(line)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }

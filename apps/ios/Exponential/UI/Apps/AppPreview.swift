@@ -107,7 +107,7 @@ struct AppPreview: View {
                         AppIcon(screens.icon(tab), size: AppIcon.Size.large)
                             .frame(height: 22)
                         Text(screens.title(tab))
-                            .font(.system(size: MobileTabBarMetrics.labelSize, weight: .medium))
+                            .font(.exp(size: MobileTabBarMetrics.labelSize, weight: .medium))
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
@@ -336,13 +336,13 @@ private struct AppPackageSurface: View {
         HStack(spacing: 6) {
             AppIcon(AppIcons.uiWarning, size: 11)
             Text(banner.text)
-                .font(.caption)
+                .font(.expCaption)
             Spacer(minLength: 8)
             if let teamId, banner.connect {
                 Button(AppUpstream.connect) {
                     pushRoute(.teamSettingsSection(accountId: accountId, teamId: teamId, section: .mcp))
                 }
-                .font(.caption.weight(.semibold))
+                .font(.expCaption.weight(.semibold))
                 .buttonStyle(.plain)
             }
         }

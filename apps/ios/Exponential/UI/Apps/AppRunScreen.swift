@@ -142,7 +142,7 @@ struct AppRunScreen: View {
         HStack(spacing: 6) {
             AgentRowIcon(icon: app.glyph, color: app.color ?? AppGlyph.neutralColor)
             Text(app.name)
-                .font(.headline)
+                .font(.expHeadline)
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)

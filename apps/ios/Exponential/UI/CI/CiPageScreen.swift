@@ -165,7 +165,7 @@ struct CiPagePage: View {
                     count(tab).map { value in
                         AnyView(
                             Text("\(value)")
-                                .font(.subheadline.weight(.medium).monospacedDigit())
+                                .font(.expSubheadline.weight(.medium).monospacedDigit())
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .lineLimit(1)
                         )

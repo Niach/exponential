@@ -174,7 +174,7 @@ struct FindInChatHeader: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if !find.report.counter.isEmpty {
                     Text(find.report.counter)
-                        .font(.subheadline.monospacedDigit())
+                        .font(.expSubheadline.monospacedDigit())
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
                         .fixedSize()
@@ -192,7 +192,7 @@ struct FindInChatHeader: View {
             if let status = find.report.status {
                 // The status line: the transcript's first line under the bar.
                 Text(status)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(DesignTokens.Palette.mutedForeground)
                     .lineLimit(1)
                     .truncationMode(.tail)

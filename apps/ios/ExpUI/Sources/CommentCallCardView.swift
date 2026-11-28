@@ -87,7 +87,7 @@ public struct CommentCallCardView<Issue: View, Mark: View, Content: View>: View 
             HStack(spacing: 8) {
                 FeedbackMark(size: 14, color: muted, animated: false)
                 Text(running ? CommentCallCopy.running : CommentCallCopy.done)
-                    .font(.caption.weight(.medium))
+                    .font(.expCaption.weight(.medium))
                     .foregroundStyle(.white)
                     .fixedSize()
                 if running { InlineSpinner(size: 12) }
@@ -140,13 +140,13 @@ public struct CommentCallCardView<Issue: View, Mark: View, Content: View>: View 
                 mark
                 if let author {
                     Text(author)
-                        .font(.subheadline.weight(.medium))
+                        .font(.expSubheadline.weight(.medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
                 if let caption {
                     Text(caption)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(muted)
                         .lineLimit(1)
                         .fixedSize()
@@ -167,7 +167,7 @@ public struct CommentCallCardView<Issue: View, Mark: View, Content: View>: View 
                 Button(expanded ? CommentCallCopy.showLess : CommentCallCopy.showMore) {
                     expanded.toggle()
                 }
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(muted)
                 .buttonStyle(.plain)
             }

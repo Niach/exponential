@@ -302,7 +302,7 @@ private struct RepoBranchesTab: View {
             Spacer(minLength: 8)
             if let number = row.prNumber {
                 Text("#\(number)")
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .fixedSize()
             }
@@ -481,7 +481,7 @@ private struct RepoSettingsTab: View {
                                     .lineLimit(1)
                                 Spacer(minLength: 8)
                                 Text(Self.bytes(backup.bytes))
-                                    .font(.caption)
+                                    .font(.expCaption)
                                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                     .fixedSize()
                                 if isOwner {

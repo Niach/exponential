@@ -143,7 +143,7 @@ struct IssueFaceView: View {
                 .controlSize(.small)
                 .tint(.white)
             Text("Syncing team…")
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer()
         }
@@ -260,7 +260,7 @@ struct IssueFaceView: View {
                         } icon: {
                             AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.small)
                         }
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -629,7 +629,7 @@ struct IssueFaceView: View {
             AppIcon(AppIcons.statusDuplicate, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text("Duplicate of")
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             NavigationLink(value: AppRoute.issue(accountId: accountId, id: duplicateOfId)) {
                 GlassPill(vm.duplicateOf?.identifier ?? vm.duplicateOf?.title ?? "issue")

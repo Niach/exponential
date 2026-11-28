@@ -16,11 +16,11 @@ private struct ServerTeamRow: View {
                 .foregroundStyle(.white)
             VStack(alignment: .leading, spacing: 1) {
                 Text(team.name)
-                    .font(.body)
+                    .font(.expBody)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(hostname)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
             }

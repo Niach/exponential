@@ -461,7 +461,7 @@ struct AgentPageView: View {
                 .accessibilityIdentifier("launch-not-ready-row")
             } else if let blocker = composer.blocker {
                 Text(blocker)
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .accessibilityIdentifier("launch-not-ready-note")
             }
@@ -471,7 +471,7 @@ struct AgentPageView: View {
             // CAN go, just not where it was asked to.
             if let requestNote = composer.deviceRequestNote {
                 Text(requestNote)
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(DesignTokens.Semantic.yellow)
                     .accessibilityIdentifier("launch-device-request-note")
             }

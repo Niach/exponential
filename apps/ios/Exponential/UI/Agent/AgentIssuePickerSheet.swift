@@ -115,7 +115,7 @@ struct AgentIssuePickerPage: View {
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
         }
-        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, GlassPickerTokens.rowHPadding)
         .padding(.vertical, 10)

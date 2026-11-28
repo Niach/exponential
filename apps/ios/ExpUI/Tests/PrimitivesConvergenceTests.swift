@@ -27,14 +27,14 @@ final class PrimitivesConvergenceTests: XCTestCase {
         XCTAssertEqual(sm.spacing, GlassPillTokens.spacingSm)
         XCTAssertEqual(sm.glyphSize, GlassPillTokens.glyphSm)
         XCTAssertEqual(sm.dotSize, GlassPillTokens.dotSize)
-        XCTAssertEqual(sm.font, .caption.weight(.medium))
+        XCTAssertEqual(sm.font, .expCaption.weight(.medium))
 
         let md = GlassPillSize.md.pillStyle(paint: GlassPillPaint(), label: .white)
         XCTAssertEqual(md.height, GlassPillTokens.heightMd)
         XCTAssertEqual(md.horizontalPadding, GlassPillTokens.horizontalPaddingMd)
         XCTAssertEqual(md.spacing, GlassPillTokens.spacingMd)
         XCTAssertEqual(md.glyphSize, GlassPillTokens.glyphMd)
-        XCTAssertEqual(md.font, .subheadline.weight(.medium))
+        XCTAssertEqual(md.font, .expSubheadline.weight(.medium))
     }
 
     func testPillPaintsMatchTheGlassButtonChrome() {

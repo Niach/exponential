@@ -627,7 +627,7 @@ struct AgentSettingsForm: View {
                 } footer: {
                     // Web's caption under the field.
                     Text(label("instructions"))
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 .listRowBackground(glassFormRowFill)
@@ -660,7 +660,7 @@ struct AgentSettingsForm: View {
     private func errorLine(_ field: String) -> some View {
         if let message = draft.error(field) {
             Text(message)
-                .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                 .foregroundStyle(DesignTokens.Semantic.red)
         }
     }
@@ -674,7 +674,7 @@ struct AgentSettingsForm: View {
                 // Web's identity lead (`AssistantMark` size-9).
                 AssistantAvatar(size: 36)
                 TextField(AgentSettings.AssistantCopy.name, text: $draft.name)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .accessibilityIdentifier("agent-name")
             }
             .disabled(!canEdit)
@@ -683,7 +683,7 @@ struct AgentSettingsForm: View {
                 IconPicker(selection: $draft.icon, tint: Color(hex: draft.color))
                 ColorSwatchPicker(selection: $draft.color)
                 TextField(AgentSettings.Copy.namePlaceholder, text: $draft.name)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .accessibilityIdentifier("agent-name")
             }
             .disabled(!canEdit)
@@ -1139,7 +1139,7 @@ struct AgentInstructionsEditor: View {
         } else if draft.instructionsFailed {
             VStack(spacing: 12) {
                 Text("Instructions unavailable")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
                     onRetry()

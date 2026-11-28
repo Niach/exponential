@@ -140,7 +140,7 @@ public struct CodeBlockView: View {
     private func header(_ title: String) -> some View {
         HStack(spacing: 0) {
             Text(verbatim: title)
-                .font(.system(size: G.titleSize, weight: .medium))
+                .font(.exp(size: G.titleSize, weight: .medium))
                 .foregroundStyle(destructive ? DesignTokens.Palette.destructive : DesignTokens.Palette.foreground)
                 .lineLimit(1)
             Spacer(minLength: 8)

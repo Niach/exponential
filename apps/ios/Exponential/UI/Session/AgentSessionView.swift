@@ -315,7 +315,7 @@ struct AgentSessionView: View {
     private var sessionLinks: some View {
         if let caption = viaAppCaption(viaAppName) {
             Text(caption)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -420,7 +420,7 @@ struct AgentSessionView: View {
                     HStack(spacing: 2) {
                         AppIcon(AppIcons.uiChevronLeft, size: 11)
                         Text(chatTitle)
-                            .font(.caption)
+                            .font(.expCaption)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
@@ -431,7 +431,7 @@ struct AgentSessionView: View {
                 .accessibilityIdentifier("session-back")
             }
             Text(model?.title ?? session.title ?? SessionTitle.Copy.untitled)
-                .font(.headline)
+                .font(.expHeadline)
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -907,7 +907,7 @@ struct AgentSessionView: View {
             // no device fed the join).
             centeredState {
                 Text(status)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .multilineTextAlignment(.center)
             }
@@ -936,7 +936,7 @@ struct AgentSessionView: View {
             VStack(alignment: .leading, spacing: 8) {
                 SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
                 Text(FeedbackStates.Starting.label(device: hostLabel))
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .transcriptColumn()
@@ -952,7 +952,7 @@ struct AgentSessionView: View {
         case .waitingForActivity:
             centeredState {
                 Text("Waiting for activity…")
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }
@@ -3557,7 +3557,7 @@ enum TranscriptType {
         size: CGFloat, weight: PlatformFont.Weight, textStyle: PlatformFont.TextStyle
     ) -> PlatformFont {
         UIFontMetrics(forTextStyle: textStyle)
-            .scaledFont(for: .systemFont(ofSize: size, weight: weight))
+            .scaledFont(for: .inter(size: size, weight: weight))
     }
 
     private static func leading(
@@ -3601,7 +3601,7 @@ struct TranscriptLoadEarlierButton: View {
 
     var body: some View {
         Button(Chats.Copy.loadEarlier, action: action)
-            .font(.footnote)
+            .font(.expFootnote)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.bottom, 4)
@@ -3772,7 +3772,7 @@ private struct BubbleCaptionLine: View {
         HStack(spacing: 4) {
             if let caption, !caption.isEmpty {
                 Text(caption)
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .accessibilityIdentifier("user-message-caption")
@@ -4166,7 +4166,7 @@ struct QuestionCard: View {
                                         .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                                 }
                                 Text(headerText)
-                                    .font(.caption.weight(.medium))
+                                    .font(.expCaption.weight(.medium))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                             }
@@ -4174,13 +4174,13 @@ struct QuestionCard: View {
                         }
                         if let stepLabel {
                             Text(stepLabel)
-                                .font(.caption2)
+                                .font(.expCaption2)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .fixedSize()
                         }
                         if let caption, !caption.isEmpty {
                             Text(caption)
-                                .font(.caption)
+                                .font(.expCaption)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -4234,7 +4234,7 @@ struct QuestionCard: View {
                     // THEN the feedback field.
                     if let approveIssue, answerable {
                         Text(approveIssue)
-                            .font(.caption2)
+                            .font(.expCaption2)
                             .foregroundStyle(DesignTokens.Semantic.yellow)
                             .accessibilityIdentifier(PlanCard.TestIds.issue)
                     }
@@ -4256,7 +4256,7 @@ struct QuestionCard: View {
                     Text(question.planMode
                         ? "Waiting for approval. You're viewing read-only."
                         : "Waiting for an answer. You're viewing read-only.")
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
@@ -4330,13 +4330,13 @@ struct QuestionCard: View {
                 )
                 .padding(.top, 2)
             Text(stepTitle(step))
-                .font(.caption)
+                .font(.expCaption)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(answer ?? (step.dismissed ? "Dismissed" : PlanCard.Copy.answered))
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .lineLimit(2)
                 .multilineTextAlignment(.trailing)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -4364,7 +4364,7 @@ struct QuestionCard: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .padding(.top, 2)
                     Text(stepTitle(foldedCurrent))
-                        .font(.caption)
+                        .font(.expCaption)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -4378,7 +4378,7 @@ struct QuestionCard: View {
         Button(AgentFeed.backToCurrentStepLabel) {
             onExitEditing?()
         }
-        .font(.caption2.weight(.medium))
+        .font(.expCaption2.weight(.medium))
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         .buttonStyle(.plain)
         .accessibilityIdentifier("agent-question-back-to-current")
@@ -4426,7 +4426,7 @@ struct QuestionCard: View {
             Button(expanded ? "Show less" : "Show more") {
                 expanded.toggle()
             }
-            .font(.caption2.weight(.medium))
+            .font(.expCaption2.weight(.medium))
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             .buttonStyle(.plain)
         }
@@ -4447,13 +4447,13 @@ struct QuestionCard: View {
                     ?? (question.dismissed ? nil : localAnswer)
                     ?? (question.dismissed ? "Dismissed" : PlanCard.Copy.answered)
             )
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .foregroundStyle(.white)
                 .textSelection(.enabled)
         }
         if let resolutionNote, !resolutionNote.isEmpty {
             Text(PlanCard.Copy.feedbackLine(resolutionNote))
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .textSelection(.enabled)
                 .accessibilityIdentifier(PlanCard.TestIds.feedback)
@@ -4543,7 +4543,7 @@ struct QuestionCard: View {
                 sendInline(option)
             }
         }
-        .font(.caption)
+        .font(.expCaption)
         .focused($inlineFocused)
         .submitLabel(.send)
         .onSubmit { sendInline(option) }
@@ -4574,14 +4574,14 @@ struct QuestionCard: View {
             HStack(spacing: 6) {
                 InlineSpinner()
                 Text(PlanCard.Copy.answering)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         } else if failed, !question.resolved, answerable {
             // The optimistic lock expired with no `answer_ack` — say WHY the
             // step re-surfaced instead of silently rolling back (EXP-334).
             Text("No confirmation from the desktop. Pick again to retry.")
-                .font(.caption2)
+                .font(.expCaption2)
                 .foregroundStyle(DesignTokens.Semantic.yellow)
         }
     }
@@ -4673,12 +4673,12 @@ struct QuestionCard: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.label)
-                    .font(.caption.weight(.medium))
+                    .font(.expCaption.weight(.medium))
                     .foregroundStyle(labelColor)
                     .multilineTextAlignment(.leading)
                 if let description = option.description, !description.isEmpty {
                     Text(description)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(quietColor)
                         .multilineTextAlignment(.leading)
                 }
@@ -4964,7 +4964,7 @@ private struct ExpToolRow: View {
         case .list:
             if let count = preview.count {
                 Text(count == 1 ? "1 result" : "\(count) results")
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         case .results, .picture:
@@ -4992,7 +4992,7 @@ private struct ExpToolRow: View {
                 AppIcon(AppIcons.prOpen, size: 11)
                     .foregroundStyle(DesignTokens.Semantic.green)
                 Text(label)
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -5497,13 +5497,13 @@ private struct ApiErrorRow: View {
                 .foregroundStyle(DesignTokens.Palette.destructive.opacity(0.7))
                 .padding(.top, 2)
             Text(verbatim: message)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let errorType, !errorType.isEmpty {
                 Text(verbatim: errorType.replacingOccurrences(of: "_", with: " "))
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .padding(.top, 1)
             }
@@ -5527,12 +5527,12 @@ private struct PermissionRow: View {
                     .foregroundStyle(.white)
                 if let detail {
                     Text(detail)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(2)
                 }
                 Text("Approve on the desktop, or reply below to continue.")
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             Spacer(minLength: 0)
@@ -5597,7 +5597,7 @@ private struct CommandPill: View {
                     .foregroundStyle(.white)
                 if !arguments.isEmpty {
                     Text(arguments)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
                         .truncationMode(.tail)

@@ -42,7 +42,7 @@ struct TeamLabelsSection: View {
                                 .frame(width: 16, height: 16)
 
                             Text(label.name)
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
 

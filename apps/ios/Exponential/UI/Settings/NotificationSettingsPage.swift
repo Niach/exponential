@@ -129,7 +129,7 @@ struct NotificationSettingsPage: View {
                     Section {
                         VStack(spacing: 12) {
                             Text(FeedbackStates.Errors.title(verb: "load", thing: "notification settings"))
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
                                 Task { await model.load(deps: deps) }

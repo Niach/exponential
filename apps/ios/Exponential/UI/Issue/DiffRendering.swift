@@ -136,7 +136,7 @@ struct DiffPatchBlock: View {
         VStack(alignment: .leading, spacing: 0) {
             if file.hunks.isEmpty {
                 Text(DiffPresentation.noHunksNote(file))
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -158,7 +158,7 @@ struct DiffPatchBlock: View {
                 .mask(trailingFadeMask)
                 if all.count > shown.count {
                     Text("Diff truncated. Showing the first \(shown.count) lines.")
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)

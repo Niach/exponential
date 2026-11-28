@@ -201,7 +201,7 @@ struct TeamRepositoriesSection: View {
                             githubGlyph
                         }
                         Text(repo.fullName)
-                            .font(.subheadline.weight(.medium))
+                            .font(.expSubheadline.weight(.medium))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -256,7 +256,7 @@ struct TeamRepositoriesSection: View {
                 }
                 if inUse {
                     Text("Used by")
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     ForEach(repo.boards) { ref in
                         // EXP-862: the board's OWN icon, tinted with its colour
@@ -275,13 +275,13 @@ struct TeamRepositoriesSection: View {
                     }
                 } else {
                     Text("Not used by any board")
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 // Who shared the repo with the team (EXP-557, web parity).
                 if let sharer = repo.sharedBy {
                     Text("· Shared by \(sharerLabel(sharer))")
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
@@ -312,7 +312,7 @@ struct TeamRepositoriesSection: View {
             HStack(spacing: 8) {
                 githubGlyph
                 Text(GithubCopy.statusFailed)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Spacer()
                 GlassPill(GithubCopy.retry, icon: AppIcons.uiRefresh, mode: .action {
@@ -333,7 +333,7 @@ struct TeamRepositoriesSection: View {
         HStack(spacing: 8) {
             githubGlyph
             Text(text)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer(minLength: 0)
         }
@@ -345,7 +345,7 @@ struct TeamRepositoriesSection: View {
         HStack(spacing: 8) {
             githubGlyph
             Text(GithubCopy.notLinked)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer(minLength: 8)
             GlassPill(
@@ -366,7 +366,7 @@ struct TeamRepositoriesSection: View {
             AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                 .foregroundStyle(DesignTokens.Semantic.yellow)
             Text(GithubCopy.reconnectNeeded)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer(minLength: 8)
             GlassPill(
@@ -393,7 +393,7 @@ struct TeamRepositoriesSection: View {
                     .fill(DesignTokens.Semantic.green)
                     .frame(width: 8, height: 8)
                 Text(status.login.map { GithubCopy.connectedAs($0) } ?? GithubCopy.connected)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -407,7 +407,7 @@ struct TeamRepositoriesSection: View {
                 if status.installations.isEmpty {
                     HStack(alignment: .top, spacing: 8) {
                         Text(GithubCopy.notInstalled)
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         Spacer(minLength: 8)
                         if status.installUrl != nil {
@@ -418,13 +418,13 @@ struct TeamRepositoriesSection: View {
                     }
                 } else {
                     Text(GithubCopy.accountsHeader)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     ForEach(status.installations) { installation in
                         accountRow(installation)
                     }
                     Text(GithubCopy.installationCaption)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     if status.installUrl != nil {
                         GlassPill(GithubCopy.installAnother, icon: AppIcons.uiAdd, mode: .action {
@@ -459,7 +459,7 @@ struct TeamRepositoriesSection: View {
             AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                 .padding(.top, 1)
             Text(GithubCopy.suspendedLine(suspended.map { installationLabel($0) }))
-                .font(.subheadline)
+                .font(.expSubheadline)
             Spacer(minLength: 8)
             if let manage, let url = URL(string: manage) {
                 Link(destination: url) {
@@ -485,7 +485,7 @@ struct TeamRepositoriesSection: View {
             )
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text(installationLabel(installation))
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -494,7 +494,7 @@ struct TeamRepositoriesSection: View {
                 Link(destination: url) {
                     HStack(spacing: 4) {
                         Text(GithubCopy.configure)
-                            .font(.caption.weight(.medium))
+                            .font(.expCaption.weight(.medium))
                         AppIcon(AppIcons.uiExternalLink, size: 11)
                     }
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))

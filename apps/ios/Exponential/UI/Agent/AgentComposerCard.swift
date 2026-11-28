@@ -349,7 +349,7 @@ struct ComposerStartingRow: View {
         HStack(spacing: 8) {
             FeedbackMark(size: CGFloat(FeedbackStates.Mark.inlineSize))
             Text(FeedbackStates.Starting.label(device: starting.deviceLabel))
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -368,7 +368,7 @@ struct ComposerStartingRow: View {
 
     private func elapsedText(_ seconds: TimeInterval) -> some View {
         Text(Self.elapsed(seconds))
-            .font(.caption.monospacedDigit())
+            .font(.expCaption.monospacedDigit())
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 
@@ -404,7 +404,7 @@ struct AgentComposerHeadline: View {
         FlowLayout(spacing: 8, lineSpacing: 6, centersLines: true) {
             if !model.headline.isEmpty {
                 Text(model.headline)
-                    .font(.title2.weight(.semibold))
+                    .font(.expTitle2.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .accessibilityIdentifier("agent-composer-headline-verb")

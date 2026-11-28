@@ -112,7 +112,7 @@ struct McpSettingsPage: View {
     /// One muted line above the first group, no label (`overview`).
     private var overviewLine: some View {
         Text(McpSettings.overview)
-            .font(.subheadline)
+            .font(.expSubheadline)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -303,7 +303,7 @@ struct McpSettingsPage: View {
                             Task { await loadTools(server) }
                         }
                         .buttonStyle(.plain)
-                        .font(.caption.weight(.medium))
+                        .font(.expCaption.weight(.medium))
                         .foregroundStyle(.white)
                         .fixedSize()
                         .accessibilityIdentifier("mcp-server-tools-retry")
@@ -334,7 +334,7 @@ struct McpSettingsPage: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(label)
-                .font(.caption.weight(.medium))
+                .font(.expCaption.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
                 .padding(.leading, McpSettingsPage.toolInset)
@@ -353,12 +353,12 @@ struct McpSettingsPage: View {
     private func toolRow(title: String, blurb: String) -> some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .layoutPriority(1)
             Text(blurb)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -381,7 +381,7 @@ struct McpSettingsPage: View {
     ) -> some View {
         HStack(spacing: 8) {
             Text(text)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -421,13 +421,13 @@ struct McpSettingsPage: View {
         switch server.connection.status {
         case "not_needed":
             Text("No sign-in needed")
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .fixedSize()
         case "connected":
             HStack(spacing: 4) {
                 AppIcon(AppIcons.uiSuccess, size: 12)
-                Text("Connected").font(.caption)
+                Text("Connected").font(.expCaption)
             }
             .foregroundStyle(DesignTokens.Semantic.green)
             .fixedSize()
@@ -523,7 +523,7 @@ struct McpSettingsPage: View {
             clientIcon(client.icon)
             VStack(alignment: .leading, spacing: 2) {
                 Text(client.name)
-                    .font(.subheadline.weight(.medium))
+                    .font(.expSubheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(McpSettings.clientCaption(
@@ -533,7 +533,7 @@ struct McpSettingsPage: View {
                     appsAccess: client.appsAccess,
                     lastUsed: client.lastUsedAt.map { RelativeTime.compact(wire: $0) }
                 ))
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
             }
@@ -615,12 +615,12 @@ struct McpSettingsPage: View {
                             HStack(spacing: 12) {
                                 AgentRowIcon(icon: app.icon ?? "puzzle", color: app.color ?? AppGlyph.neutralColor)
                                 Text(app.name)
-                                    .font(.subheadline.weight(.medium))
+                                    .font(.expSubheadline.weight(.medium))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
                                 Spacer(minLength: 8)
                                 Text(McpSettings.toolCountLabel(app.toolCount))
-                                    .font(.caption)
+                                    .font(.expCaption)
                                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                     .fixedSize()
                             }
@@ -677,7 +677,7 @@ struct McpSettingsPage: View {
                 HStack(spacing: 12) {
                     avatar
                     GlassPickerRowLabel(name, value: level.label)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -688,7 +688,7 @@ struct McpSettingsPage: View {
             HStack(spacing: 12) {
                 avatar
                 GlassPickerRowLabel(name, value: level.label, chevron: false)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -714,7 +714,7 @@ struct McpSettingsPage: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .frame(width: 20, height: 20)
                 GlassPickerRowLabel(McpSettings.everyoneElse, value: level.label)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -839,7 +839,7 @@ private struct McpRowDisclosure<Glyph: View>: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(name)
-                            .font(.subheadline.weight(.medium))
+                            .font(.expSubheadline.weight(.medium))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         if let pill {
@@ -848,7 +848,7 @@ private struct McpRowDisclosure<Glyph: View>: View {
                     }
                     if !caption.isEmpty {
                         Text(caption)
-                            .font(mono ? .expMono(.caption) : .caption)
+                            .font(mono ? .expMono(.caption) : .expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -997,7 +997,7 @@ struct McpActivityPage: View {
                     clientName: call.clientName,
                     when: RelativeTime.compact(wire: call.createdAt)
                 ))
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
             }

@@ -264,6 +264,8 @@ let shareExtensionSources: SourceFilesList = [
     "ExpUI/Sources/DesignTokens.generated.swift",
     "ExpUI/Sources/GlassTokens.swift",
     "ExpUI/Sources/Motion.swift",
+    // #EXP-2215: Inter (the SDK's bundled faces, ExponentialUIPrimitives).
+    "ExpUI/Sources/ExpFont.swift",
     "ExpUI/Sources/GlassComposer.swift",
     "ExpUI/Sources/AgentBubbleCircle.swift",
     "ExpUI/Sources/ComposerAgentRowView.swift",
@@ -583,7 +585,7 @@ let project = Project(
             sources: shareExtensionSources,
             resources: shareExtensionResources,
             entitlements: "Exponential.entitlements",
-            dependencies: expPushDependencies,
+            dependencies: expPushDependencies + [.external(name: "ExponentialUIPrimitives")],
             settings: .settings(base: baseSettings.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": .string(shareExtensionConditions),
             ]) { _, new in new })
@@ -601,7 +603,7 @@ let project = Project(
             sources: shareExtensionSources,
             resources: shareExtensionResources,
             entitlements: "ExponentialStaging.entitlements",
-            dependencies: expPushDependencies,
+            dependencies: expPushDependencies + [.external(name: "ExponentialUIPrimitives")],
             settings: .settings(base: baseSettings.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": .string("\(shareExtensionConditions) STAGING"),
             ]) { _, new in new })

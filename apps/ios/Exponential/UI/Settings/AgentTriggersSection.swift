@@ -209,7 +209,7 @@ struct AgentTriggersSection: View {
                             .truncationMode(.tail)
                         if let detail {
                             Text(detail)
-                                .font(.caption)
+                                .font(.expCaption)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .lineLimit(1)
                                 .truncationMode(.tail)

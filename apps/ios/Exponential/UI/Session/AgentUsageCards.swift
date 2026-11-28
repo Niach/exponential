@@ -40,7 +40,7 @@ struct UsageWindows: View {
             }
             if let age {
                 Text(age)
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
@@ -58,7 +58,7 @@ struct UsageWindows: View {
                 // EXP-1627: the title never truncates; the reset caption
                 // gives way first.
                 Text(card.title)
-                    .font(.system(size: DesignTokens.Typography.Size.xs))
+                    .font(.exp(size: DesignTokens.Typography.Size.xs))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -66,7 +66,7 @@ struct UsageWindows: View {
                 Spacer(minLength: 0)
                 if !card.caption.isEmpty {
                     Text(card.caption)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -75,7 +75,7 @@ struct UsageWindows: View {
             HStack(spacing: 8) {
                 AgentUsageTrack(percent: card.percent, severity: card.severity)
                 Text(percentText(card.percent))
-                    .font(.caption.monospacedDigit())
+                    .font(.expCaption.monospacedDigit())
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }
@@ -118,7 +118,7 @@ struct AgentUsageMini: View {
                     VStack(spacing: 2) {
                         HStack(spacing: 4) {
                             Text(window.label)
-                                .font(.system(size: 10))
+                                .font(.exp(size: 10))
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .lineLimit(1)
                             AgentUsageTrack(
@@ -128,14 +128,14 @@ struct AgentUsageMini: View {
                             )
                             .frame(width: 24)
                             Text(window.percent.map { "\(Int($0.rounded()))%" } ?? "—")
-                                .font(.system(size: 10).monospacedDigit())
+                                .font(.exp(size: 10).monospacedDigit())
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
                         // Centred under its own bar, and only where there is a
                         // reset to name (`miniWindowReset`).
                         if let reset = resetCaption(window) {
                             Text(reset)
-                                .font(.system(size: 10))
+                                .font(.exp(size: 10))
                                 .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                                 .lineLimit(1)
                         }
@@ -234,19 +234,19 @@ struct AgentUsageSheet: View {
                     .frame(width: 16, height: 16)
             }
             Text(headerCaption)
-                .font(.subheadline.weight(.medium))
+                .font(.expSubheadline.weight(.medium))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
             if let badge = runAccount.flatMap(AgentAccountsRows.healthBadge) {
                 Text(badge)
-                    .font(.caption2)
+                    .font(.expCaption2)
                     .foregroundStyle(DesignTokens.Semantic.yellow)
                     .lineLimit(1)
             } else if let plan = headerPlan {
                 Text(plan)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
             }
@@ -283,7 +283,7 @@ struct AgentUsageSheet: View {
             UsageWindows(usage: usage)
         } else {
             Text("Checking…")
-                .font(.caption2)
+                .font(.expCaption2)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
     }
@@ -315,16 +315,16 @@ struct ContextWindowBlock: View {
             } label: {
                 HStack(spacing: 8) {
                     Text(ContextLayoutPresentation.title.uppercased())
-                        .font(.caption2.weight(.semibold))
+                        .font(.expCaption2.weight(.semibold))
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     Spacer(minLength: 0)
                     if let cost {
                         Text(cost)
-                            .font(.caption.monospacedDigit())
+                            .font(.expCaption.monospacedDigit())
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                     Text(view.headline)
-                        .font(.caption.monospacedDigit())
+                        .font(.expCaption.monospacedDigit())
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(1)
                     AppIcon(open ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
@@ -358,24 +358,24 @@ struct ContextWindowBlock: View {
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.label)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white)
                 // Today only `project` names what it loaded (`CLAUDE.md,
                 // ~/.claude/CLAUDE.md`), but any layer that does gets to say
                 // so.
                 if let detail = row.detail {
                     Text(detail)
-                        .font(.caption2)
+                        .font(.expCaption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 0)
             Text("\(row.estimated ? "≈" : "")\(row.tokens)")
-                .font(.caption.monospacedDigit())
+                .font(.expCaption.monospacedDigit())
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Text(row.percent)
-                .font(.caption2.monospacedDigit())
+                .font(.expCaption2.monospacedDigit())
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .frame(width: 44, alignment: .trailing)
         }

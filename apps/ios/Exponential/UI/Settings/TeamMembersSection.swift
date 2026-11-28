@@ -126,12 +126,12 @@ struct TeamMembersSection: View {
                 HStack(spacing: 6) {
                     HStack(spacing: 4) {
                         Text(displayName)
-                            .font(.subheadline)
+                            .font(.expSubheadline)
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         if isSelf {
                             Text("(you)")
-                                .font(.subheadline)
+                                .font(.expSubheadline)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .lineLimit(1)
                                 .fixedSize()
@@ -157,7 +157,7 @@ struct TeamMembersSection: View {
                 // line, and repeating it below would read as email-over-email.
                 if let email = user?.email, !email.isEmpty, email != displayName {
                     Text(email)
-                        .font(.caption)
+                        .font(.expCaption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
@@ -239,7 +239,7 @@ struct TeamMembersSection: View {
                 .onSubmit { if !sending && !adding { Task { await sendInvite() } } }
             if let emailError {
                 Text(emailError)
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
             Button { Task { await sendInvite() } } label: {
@@ -395,14 +395,14 @@ struct TeamMembersSection: View {
             AppIcon(email == nil ? AppIcons.uiLink : AppIcons.uiMail, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text(email ?? PendingInvites.linkInviteLabel)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(email == nil ? Color.white.opacity(TextOpacity.tertiary) : Color.white)
                 .lineLimit(1)
                 .truncationMode(.middle)
             rolePill(invite.role)
             if let expiry = PendingInvites.expiryLabel(invite.expiresAt) {
                 Text(expiry)
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .fixedSize()

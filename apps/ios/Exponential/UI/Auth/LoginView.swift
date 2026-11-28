@@ -39,7 +39,7 @@ struct LoginView: View {
                     if let instanceUrl = deps.auth.instanceUrl,
                        instanceUrl != AppConstants.defaultCloudUrl {
                         Text(instanceUrl)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .frame(maxWidth: .infinity)
                             .padding(.top, 4)
@@ -112,7 +112,7 @@ struct LoginView: View {
                                 // Lucide has no Apple logo and SIWA must use
                                 // Apple's own art (App Store guideline 4.8).
                                 Image(systemName: "apple.logo")
-                                    .font(.body.weight(.medium))
+                                    .font(.expBody.weight(.medium))
                             }
                         }
 
@@ -171,7 +171,7 @@ struct LoginView: View {
                 // 13pt rose.
                 if let error = vm.error {
                     Text(error)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .padding(.horizontal, 4)
                 }
@@ -185,7 +185,7 @@ struct LoginView: View {
                 .fill(Color.white.opacity(0.1))
                 .frame(height: 0.5)
             Text("or")
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Rectangle()
                 .fill(Color.white.opacity(0.1))
@@ -202,7 +202,7 @@ struct LoginView: View {
                 nameStep(vm)
             } else if vm.emailStep == .code {
                 Text("We sent a 6-digit code to \(vm.codeSentTo ?? vm.email).")
-                    .font(.footnote)
+                    .font(.expFootnote)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -277,17 +277,17 @@ struct LoginView: View {
     private func nameStep(_ vm: LoginViewModel) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(EmailCodeSignUpCopy.title)
-                .font(.headline)
+                .font(.expHeadline)
                 .foregroundStyle(.white)
             Text(EmailCodeSignUpCopy.body)
-                .font(.footnote)
+                .font(.expFootnote)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
 
         VStack(alignment: .leading, spacing: 6) {
             Text(EmailCodeSignUpCopy.fieldLabel)
-                .font(.caption)
+                .font(.expCaption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             GlassTextField(EmailCodeSignUpCopy.placeholder, text: Binding(
                 get: { vm.name },
@@ -375,7 +375,7 @@ struct LoginView: View {
     @ViewBuilder
     private func actionLink(_ label: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(label, action: action)
-            .font(.footnote)
+            .font(.expFootnote)
             .foregroundStyle(.white.opacity(TextOpacity.secondary))
             .accessibilityIdentifier(identifier)
     }
@@ -385,7 +385,7 @@ struct LoginView: View {
         Button(label) {
             openURL(url)
         }
-        .font(.footnote)
+        .font(.expFootnote)
         .foregroundStyle(.white.opacity(TextOpacity.secondary))
         .accessibilityIdentifier(identifier)
     }

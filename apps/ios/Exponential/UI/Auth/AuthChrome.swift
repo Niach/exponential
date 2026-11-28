@@ -14,7 +14,7 @@ struct AuthBrandHeading: View {
                 .frame(width: 56, height: 56)
                 .accessibilityHidden(true)
             Text(title)
-                .font(.system(size: 24, weight: .semibold))
+                .font(.exp(size: 24, weight: .semibold))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
         }
@@ -33,7 +33,7 @@ struct AuthLegalFooter: View {
             Text("·")
             link("Terms", url: AppConstants.termsUrl, identifier: "auth-terms-link")
         }
-        .font(.caption)
+        .font(.expCaption)
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         .frame(maxWidth: .infinity)
     }

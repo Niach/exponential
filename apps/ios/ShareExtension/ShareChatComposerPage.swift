@@ -100,7 +100,7 @@ struct ShareChatComposerPage: View {
                 card
                 ForEach(notes, id: \.self) { note in
                     Text(note)
-                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .font(.exp(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 4)

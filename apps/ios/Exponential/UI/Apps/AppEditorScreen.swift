@@ -492,7 +492,7 @@ struct AppEditorScreen: View {
                 if let viewing {
                     HStack(spacing: 8) {
                         Text(Apps.Copy.viewing(viewing))
-                            .font(.subheadline.weight(.medium))
+                            .font(.expSubheadline.weight(.medium))
                             .foregroundStyle(.white)
                         Spacer(minLength: 8)
                         if canWrite, viewing != app.publishedVersion {
@@ -686,12 +686,12 @@ struct AppVersionsList: View {
                     GlassPill(Apps.versionLabel(version.number))
                         .monospacedDigit()
                     Text(note.isEmpty ? Apps.Copy.noNote : note)
-                        .font(.subheadline.weight(.medium))
+                        .font(.expSubheadline.weight(.medium))
                         .foregroundStyle(note.isEmpty ? Color.white.opacity(TextOpacity.secondary) : Color.white)
                         .lineLimit(1)
                 }
                 Text([when.isEmpty ? who : "\(who)\(UserMessageCaption.separator)\(when)", migration].compactMap { $0 }.joined(separator: UserMessageCaption.separator))
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     // The sweep's progress is the line's point: it wraps, never ellipsizes.
                     .lineLimit(migration == nil ? 1 : 2)
@@ -705,7 +705,7 @@ struct AppVersionsList: View {
                 } else {
                     Button { onPreview(version.number) } label: {
                         Text(Apps.Copy.preview)
-                            .font(.caption.weight(.medium))
+                            .font(.expCaption.weight(.medium))
                             .foregroundStyle(.white)
                             .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
                             .frame(height: GlassPillTokens.heightSm)
@@ -819,7 +819,7 @@ struct AppSettingsPage: View {
                 lines: 3...8,
                 accessibilityIdentifier: "app-settings-description"
             )
-            .font(.subheadline)
+            .font(.expSubheadline)
             .focused($descriptionFocused)
             .disabled(!canManage)
             .onChange(of: description) { _, next in
@@ -834,7 +834,7 @@ struct AppSettingsPage: View {
                     .id(agent.id)
             }
             Text(AppRecords.recordsCountLabel(count: model.recordsCount, max: nil))
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.horizontal, 4)
                 .accessibilityIdentifier("app-settings-records")
@@ -869,7 +869,7 @@ struct AppSettingsPage: View {
                 }
             ))
             GlassTextField(Apps.Copy.namePlaceholder, text: $name, verticalPadding: 9, accessibilityIdentifier: "app-settings-name")
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .focused($nameFocused)
                 .onSubmit { saveName() }
                 .onChange(of: nameFocused) { _, focused in
@@ -896,7 +896,7 @@ struct AppSettingsPage: View {
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                             Text(row.caption)
-                                .font(.caption)
+                                .font(.expCaption)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .lineLimit(2)
                         }
@@ -924,14 +924,14 @@ struct AppSettingsPage: View {
             GlassSectionBand(AppActions.Copy.title)
             // #EXP-1849: the hint = a muted line under the band.
             Text(AppActions.Copy.hint)
-                .font(.subheadline)
+                .font(.expSubheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.horizontal, 4)
                 .padding(.bottom, 4)
             VStack(spacing: 0) {
                 if declared.isEmpty {
                     Text(AppActions.Copy.none)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
@@ -953,7 +953,7 @@ struct AppSettingsPage: View {
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(tool)
@@ -973,7 +973,7 @@ struct AppSettingsPage: View {
             } else {
                 // The ruling: a destructive or owner-only action always asks.
                 Text(AppActions.Copy.always)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }
@@ -1013,12 +1013,12 @@ struct AppSettingsPage: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(account.name)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     if let caption {
                         Text(caption)
-                            .font(.caption)
+                            .font(.expCaption)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .lineLimit(1)
                     }
@@ -1038,7 +1038,7 @@ struct AppSettingsPage: View {
                         .accessibilityIdentifier("\(Apps.TestIds.accountRow)-\(account.name)-\(row.action?.rawValue ?? "")")
                 } else if let label = row.label, row.status != "notSetUp" || servers.isEmpty {
                     Text(label)
-                        .font(.subheadline)
+                        .font(.expSubheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .fixedSize()
                 }
@@ -1106,7 +1106,7 @@ struct AppSettingsPage: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(tool.title)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(tool.name)
@@ -1175,11 +1175,11 @@ struct AppSettingsPage: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(share.name)
-                    .font(.subheadline)
+                    .font(.expSubheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(AppShare.shareRowSubtitle(share.mode, share.state, expiresAt: share.expiresAt))
-                    .font(.caption)
+                    .font(.expCaption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
             }
