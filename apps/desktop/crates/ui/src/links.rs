@@ -468,6 +468,16 @@ fn land(landing: Landing, window: &mut Window, cx: &mut App) {
             crate::app_screen::open_app_screen(window, cx, app_id, screen, params);
         }
         Landing::Settings(section) => {
+            // #EDE-275: in eDE Settings may be another window's page (or one
+            // opened for it): the section goes with the navigation.
+            if crate::ede_component::is_component() {
+                if let Some(section) = section {
+                    crate::ede_windows::hand_settings_section(section, cx);
+                }
+                navigation::navigate(window, cx, Screen::Settings);
+                crate::ede_windows::take_settings_section(window, cx);
+                return;
+            }
             navigation::navigate(window, cx, Screen::Settings);
             if let Some(section) = section {
                 crate::sidebar::select_settings_section(window, cx, section);

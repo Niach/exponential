@@ -4,7 +4,7 @@
 
 import fixture from "../fixtures/system-settings.json" with { type: "json" }
 
-export type SettingsKind = `module` | `later` | `launch`
+export type SettingsKind = `module` | `later` | `launch` | `page`
 
 export interface SettingsModule {
   id: string
@@ -14,6 +14,8 @@ export interface SettingsModule {
   keywords: string
   kind: SettingsKind
   command?: string
+  /** #EDE-275: the holder page a `page` module opens (a window key or a `~/` link). */
+  page?: string
   opens?: string
   /** #EDE-274: the module's stack switcher (its pages, in order). */
   tabs?: { value: string; label: string }[]
@@ -45,6 +47,7 @@ export type SettingsEvent = { kind: `open`; id: string } | { kind: `back` } | { 
 export interface SettingsNavigation {
   state: SettingsState
   launch: string | null
+  page: string | null
   title: string
 }
 
@@ -61,7 +64,7 @@ export function settingsGrid(query: string, installed: string[]): SettingsCatego
   return SETTINGS_CATEGORIES.map((c) => ({
     id: c.id,
     title: c.title,
-    modules: SETTINGS_MODULES.filter((m) => m.category === c.id && (q === `` || matches(m, q))).map((m) => ({ id: m.id, name: m.name, icon: m.icon, kind: m.kind, later: m.kind === `later`, installed: m.kind === `launch` ? installed.includes(m.id) : true })),
+    modules: SETTINGS_MODULES.filter((m) => m.category === c.id && (q === `` || matches(m, q))).map((m) => ({ id: m.id, name: m.name, icon: m.icon, kind: m.kind, later: m.kind === `later`, installed: m.kind === `launch` || m.kind === `page` ? installed.includes(m.id) : true })),
   })).filter((c) => c.modules.length > 0)
 }
 
@@ -72,12 +75,13 @@ function resolve(id: string): SettingsModule | undefined {
   return m?.opens ? SETTINGS_MODULES.find((x) => x.id === m.opens) : m
 }
 
-const result = (state: SettingsState, launch: string | null = null): SettingsNavigation => ({ state, launch, title: titleOf(state.module) })
+const result = (state: SettingsState, launch: string | null = null, page: string | null = null): SettingsNavigation => ({ state, launch, page, title: titleOf(state.module) })
 
 function open(state: SettingsState, id: string, installed: string[]): SettingsNavigation {
   const m = resolve(id)
   if (!m) return result(state)
   if (m.kind === `launch` && installed.includes(m.id)) return result(state, m.command ?? null)
+  if (m.kind === `page` && installed.includes(m.id)) return result(state, null, m.page ?? null)
   return result({ module: m.id, query: state.query, tab: firstTab(m) })
 }
 
@@ -112,6 +116,7 @@ export function settingsNavigate(state: SettingsState, event: SettingsEvent, ins
       const m = t ? resolve(t) : undefined
       if (!m) return result(grid)
       if (m.kind === `launch` && installed.includes(m.id)) return result(grid, m.command ?? null)
+      if (m.kind === `page` && installed.includes(m.id)) return result(grid, null, m.page ?? null)
       return result({ module: m.id, query: ``, tab: firstTab(m) })
     }
     case `tab`: {

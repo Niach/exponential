@@ -1040,7 +1040,7 @@ impl HostPlugin for Host {
                         refresh(&shell, cx);
                     }
                     Some("share") => {
-                        settings_open_page(&shell, "this-device", cx);
+                        settings_open_page(&shell, "share-desktop", cx);
                         share_start(&shell, cx);
                     }
                     Some(other) => tracing::warn!(action = other, "unknown switcher action"),
@@ -1263,7 +1263,7 @@ fn builtin_apps(demo: bool) -> Vec<apps::App> {
     let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
     vec![
         apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, exec_url: None, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()], wm_class: None, steam_app: None },
-        apps::App { id: format!("{}.desktop", system_settings::APP_ID), name: "System Settings".into(), comment: "Control Center".into(), exec: String::new(), exec_url: None, icon: None, keywords: "preferences settings control center".into(), categories: vec!["Settings".into(), "System".into()], wm_class: None, steam_app: None },
+        apps::App { id: format!("{}.desktop", system_settings::APP_ID), name: "System Settings".into(), comment: "Control Center".into(), exec: String::new(), exec_url: None, icon: if demo { None } else { apps::icon_file("preferences-system").or_else(|| apps::icon_file("org.gnome.Settings")) }, keywords: "preferences settings control center".into(), categories: vec!["Settings".into(), "System".into()], wm_class: None, steam_app: None },
         apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), exec_url: None, icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()], wm_class: None, steam_app: None },
     ]
 }
@@ -1325,10 +1325,30 @@ fn settings_open_page(shell: &SharedShell, page: &str, cx: &mut App) {
 /// the front.
 fn settings_show(shell: &SharedShell, cx: &mut App) {
     settings_reap(shell);
-    if shell.borrow().surfaces.activate(system_settings::DOCUMENT, cx) {
+    if shell.borrow().surfaces.is_open(system_settings::DOCUMENT) {
+        // A single instance: the open window comes to the front. The
+        // compositor focuses it (a client's own activation without a token
+        // only asks for attention: the taskbar button turned red in the VM).
+        let id = shell.borrow().model.windows.iter().find(|w| w.app == system_settings::APP_ID).map(|w| w.id.clone());
+        match id.and_then(|id| ede_protocol::WindowId::new(&id).ok()) {
+            Some(id) => {
+                with_ede(shell, |ede| ede.focus(id));
+            }
+            None => {
+                shell.borrow().surfaces.activate(system_settings::DOCUMENT, cx);
+            }
+        }
+        settings_focus_search(shell, cx);
         return;
     }
     settings_feed(shell);
+    // The new window takes the keyboard as it maps (the compositor gives a
+    // shell window without a launch token none; the VM showed it behind).
+    {
+        let mut s = shell.borrow_mut();
+        let known: Vec<String> = s.windows.iter().map(|w| w.id.to_string()).collect();
+        s.focus_next.arm(&[system_settings::APP_ID], known, Instant::now());
+    }
     open_on_demand(shell, system_settings::DOCUMENT, cx);
     let title = shell.borrow().settings_nav.feed()["title"].as_str().unwrap_or_default().to_string();
     shell.borrow().surfaces.set_title(system_settings::DOCUMENT, &title, cx);
@@ -1372,8 +1392,18 @@ fn settings_step(shell: &SharedShell, event: uicore_model::settings::SettingsEve
     if let Some(command) = next.launch.as_deref() {
         person_launch(shell, command);
     }
+    // #EDE-275: an Exponential module is the holder's own page, its window
+    // coming forward with this press's token.
+    if let Some(page) = next.page.clone() {
+        let request = system_settings::holder_request(&page, start_menu_token(shell));
+        std::thread::spawn(move || {
+            if let Err(e) = api::bus::call(&api::bus::socket_path(&api::default_data_dir()), &request) {
+                tracing::warn!(%page, "holder settings page: {e}");
+            }
+        });
+    }
     settings_feed(shell);
-    if show && next.launch.is_none() {
+    if show && next.launch.is_none() && next.page.is_none() {
         settings_show(shell, cx);
     }
     shell.borrow().surfaces.set_title(system_settings::DOCUMENT, &next.title, cx);
@@ -4708,6 +4738,10 @@ fn main() {
                 }
                 if let Some(feeds) = holder_feeds_rx.try_iter().last() {
                     holder_feeds::keep(&mut s.borrow_mut().holder_feeds, feeds);
+                    // #EDE-275: the Exponential modules follow the holder's account.
+                    let signed_in = !s.borrow().holder_feeds.feeds["account"].is_null();
+                    s.borrow_mut().settings_nav.set_holder(signed_in);
+                    settings_feed(&s);
                     cx.update(|cx| model_changed(&s, cx));
                     dirty = true;
                 }
