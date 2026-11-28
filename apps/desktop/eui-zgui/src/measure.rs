@@ -44,6 +44,9 @@ pub struct ZMeasure {
     styles: HashMap<StyleKey, Arc<zts::TextStyle>>,
     paragraph: zts::ParagraphStyle,
     pub calls: u64,
+    /// The surface's theme + mode (recipe parts: a chevron's size…).
+    pub theme: Option<Arc<eui_core::theme::ResolvedTheme>>,
+    pub mode: eui_core::theme::Mode,
 }
 
 /// The shaped size of one paragraph: width, height, first baseline, lines.
@@ -57,7 +60,7 @@ pub struct Shaped {
 
 impl ZMeasure {
     pub fn new(fonts: &zgui::app::Fonts) -> Self {
-        ZMeasure { shaper: fonts.shaper(), cache: ParagraphCache::new(), styles: HashMap::new(), paragraph: zts::ParagraphStyle::initial(), calls: 0 }
+        ZMeasure { shaper: fonts.shaper(), cache: ParagraphCache::new(), styles: HashMap::new(), paragraph: zts::ParagraphStyle::initial(), calls: 0, theme: None, mode: eui_core::theme::Mode::Dark }
     }
 
     /// The zgui text style the painter's CSS lowers to (`paint::text_css`).
@@ -155,11 +158,27 @@ impl ZMeasure {
                 let text = str_prop(props, "text");
                 let text = if text.is_empty() { placeholder(props) } else { text.to_string() };
                 let gap = if c.gap > 0.0 { c.gap } else { 8.0 };
-                (self.line(&text, ts) + gap + 16.0, ts.line_height, Some(self.baseline(ts)))
+                let theme = self.theme.clone();
+                let part = |p: &str| crate::paint::part_props(theme.as_deref(), self.mode, leaf.component, p, props, &[]);
+                let chev = part("chevron");
+                let glyph = crate::paint::px_prop(&chev, "width").or_else(|| crate::paint::px_prop(&chev, "height")).unwrap_or(16.0);
+                let mut w = self.line(&text, ts) + gap + glyph;
+                if !str_prop(props, "valueIcon").is_empty() {
+                    let vi = part("valueIcon");
+                    w += crate::paint::px_prop(&vi, "width").or_else(|| crate::paint::px_prop(&vi, "height")).unwrap_or(16.0) + gap;
+                }
+                let lift = crate::paint::px_prop(&part("value"), "marginTop").unwrap_or(0.0);
+                let h = if lift != 0.0 { (ts.line_height + lift).max(glyph) } else { ts.line_height };
+                (w, h, Some(self.baseline(ts) + lift))
             }
             ("Text", part) => {
                 let shown = display_text(props.get("text"));
-                if part == Some("lineNumber") {
+                if leaf.owner_component == Some("Tabs") && part == Some("tab") {
+                    let (lead, trail) = tab_chrome(self, props, ts, c.gap);
+                    let w = lead + self.line(&shown, ts) + trail;
+                    let w = match inner { Some(x) if x > 0.0 => w.min(x), _ => w };
+                    (w, ts.line_height, Some(self.baseline(ts)))
+                } else if part == Some("lineNumber") {
                     let digits = props.get("digits").and_then(Value::as_f64).unwrap_or(1.0).max(1.0) as usize;
                     let (w, h, b) = self.para(&shown, ts, None, Some(1));
                     (w.max(self.line(&"0".repeat(digits), ts)), h, b)
@@ -278,4 +297,13 @@ pub fn insets(c: &ControlBox) -> (f32, f32) {
 pub fn top_inset(c: &ControlBox) -> f32 {
     let p = c.padding;
     (if p == [0.0; 4] { c.padding_vertical } else { p[0] }) + c.border_width
+}
+
+/// A tab's chrome (eui-gpui `text_chrome`): [icon + gap] label [gap + count].
+pub fn tab_chrome(m: &mut ZMeasure, props: &Map<String, Value>, ts: &TextStyle, gap: f32) -> (f32, f32) {
+    let has = |k: &str| props.get(k).is_some_and(|v| !v.is_null() && v.as_str() != Some(""));
+    let lead = if has("icon") { 16.0 + gap.max(4.0) } else { 0.0 };
+    let count = display_text(props.get("count"));
+    let trail = if has("count") { gap.max(4.0) + m.line(&count, ts) } else { 0.0 };
+    (lead, trail)
 }

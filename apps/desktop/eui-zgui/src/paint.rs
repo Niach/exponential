@@ -214,6 +214,55 @@ pub fn leaf_pieces(cx: &LeafCx, m: &mut ZMeasure) -> Vec<Piece> {
                 return out;
             }
             let control = matches!(part, Some("tab" | "trigger" | "item"));
+            if n.owner_component.as_deref() == Some("CodeBlock") && part == Some("code") {
+                if let Some(tokens) = n.props.get("tokens").and_then(Value::as_array) {
+                    let mut looks: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
+                    let mut runs = Vec::new();
+                    for t in tokens {
+                        let kind = t.get("kind").and_then(Value::as_str).unwrap_or("plain").to_string();
+                        let s = t.get("text").and_then(Value::as_str).unwrap_or("");
+                        if s.is_empty() {
+                            continue;
+                        }
+                        let css = looks
+                            .entry(kind.clone())
+                            .or_insert_with(|| {
+                                let mut props = cx.owner_props.clone();
+                                props.insert("kind".into(), Value::String(kind.clone()));
+                                let v = part_visual(cx.theme, cx.mode, "CodeBlock", "token", &props, &[]);
+                                let mut css = String::new();
+                                if let Some(c) = v.color {
+                                    let _ = write!(css, "color:{c};");
+                                }
+                                if let Some(w) = v.font_weight {
+                                    let _ = write!(css, "font-weight:{w};");
+                                }
+                                if v.font_style.as_deref() == Some("italic") {
+                                    css.push_str("font-style:italic;");
+                                }
+                                (!css.is_empty()).then_some(css)
+                            })
+                            .clone();
+                        runs.push((css.map(|c| c), s.to_string()));
+                    }
+                    out.push(Piece { css: format!("position:absolute;left:{}px;top:{}px;width:{}px;{}", f(cx0), f(cy0), f(cw.max(1.0)), text_css(ts, Wrap::NoWrap)), kind: PieceKind::Text(runs) });
+                    return out;
+                }
+            }
+            if part == Some("tab") && n.owner_component.as_deref() == Some("Tabs") {
+                let gap = cx.vis.gap.unwrap_or(0.0);
+                let (lead, trail) = crate::measure::tab_chrome(m, &n.props, ts, gap);
+                let top = centred_v(ts.line_height);
+                if lead > 0.0 {
+                    out.extend(svg_piece(cx.str("icon"), cx0, centred_v(16.0), 16.0, None, ""));
+                }
+                let tw = (cw - lead - trail).max(1.0);
+                out.push(text_piece(format!("left:{}px;top:{}px;width:{}px;", f(cx0 + lead), f(top), f(tw)), ts, text, Wrap::NoWrap, "overflow:hidden;text-overflow:ellipsis;"));
+                if trail > 0.0 {
+                    out.push(text_piece(format!("left:{}px;top:{}px;width:{}px;", f(cx0 + lead + tw + gap.max(4.0)), f(top), f(trail)), ts, display_text(n.props.get("count")), Wrap::NoWrap, ""));
+                }
+                return out;
+            }
             let top = if control { centred_v(ts.line_height) } else { cy0 };
             let align = cx.vis.text_align.as_deref().unwrap_or("left");
             let mut extra = format!("text-align:{align};");
@@ -275,6 +324,7 @@ pub fn leaf_pieces(cx: &LeafCx, m: &mut ZMeasure) -> Vec<Piece> {
             out.push(Piece { css, kind: PieceKind::Box });
         }
         ("Select" | "DatePicker" | "DateRangePicker" | "TimePicker", Some("trigger")) => {
+            // eui-gpui natives::select_trigger: [valueIcon] value (or placeholder) … chevron.
             let text = cx.str("text").to_string();
             let ph = match n.props.get("placeholder") {
                 Some(Value::String(s)) => s.clone(),
@@ -282,16 +332,41 @@ pub fn leaf_pieces(cx: &LeafCx, m: &mut ZMeasure) -> Vec<Piece> {
             };
             let is_ph = text.is_empty() || n.props.get("placeholder").and_then(Value::as_bool) == Some(true);
             let shown = if text.is_empty() { ph } else { text };
-            let color = if is_ph { part_visual(cx.theme, cx.mode, &n.component, "placeholder", cx.owner_props, &[]).color.or_else(|| theme_color(cx.theme, cx.mode, "mutedForeground")) } else { None };
-            let glyph = 16.0;
-            let gap = cx.vis.gap.filter(|g| *g > 0.0).unwrap_or(8.0);
-            let tw = (cw - glyph - gap).max(1.0);
-            let c = color.map(|c| format!("color:{c};")).unwrap_or_default();
-            out.push(text_piece(format!("left:{}px;top:{}px;width:{}px;", f(cx0), f(centred_v(ts.line_height)), f(tw)), ts, shown, Wrap::NoWrap, &format!("overflow:hidden;text-overflow:ellipsis;{c}")));
-            let icon = if cx.str("icon").is_empty() { "ui-chevron-down" } else { cx.str("icon") };
+            let owner = n.component.as_str();
+            let disabled: Vec<String> = n.states.iter().filter(|s| s.as_str() == "disabled").cloned().collect();
+            let value = part_visual(cx.theme, cx.mode, owner, "value", cx.owner_props, &disabled);
+            let phv = part_visual(cx.theme, cx.mode, owner, "placeholder", cx.owner_props, &disabled);
+            let (color, fade) = if is_ph { (phv.color.clone().or_else(|| theme_color(cx.theme, cx.mode, "mutedForeground")), phv.opacity) } else { (value.color.clone(), value.opacity) };
+            let chev = part_props(cx.theme, cx.mode, owner, "chevron", cx.owner_props, &[]);
+            let glyph = px_prop(&chev, "width").or_else(|| px_prop(&chev, "height")).unwrap_or(16.0);
             let variant = cx.owner_props.get("triggerVariant").and_then(Value::as_str);
-            let fade = if variant.is_some_and(|v| v != "field") { 1.0 } else { 0.6 };
-            out.extend(svg_piece(icon, cx0 + cw - glyph, centred_v(glyph), glyph, None, &format!("opacity:{};", f(fade))));
+            let glyph_fade = chev.get("opacity").and_then(Value::as_f64).map(|o| o as f32).unwrap_or(if variant.is_some_and(|v| v != "field") { 1.0 } else { 0.6 });
+            let glyph_ink = part_visual(cx.theme, cx.mode, owner, "chevron", cx.owner_props, &[]).color;
+            let gap = cx.vis.gap.filter(|g| *g > 0.0).unwrap_or(8.0);
+            let mut x = cx0;
+            let picked = cx.str("valueIcon");
+            if !picked.is_empty() {
+                let part = part_props(cx.theme, cx.mode, owner, "valueIcon", cx.owner_props, &[]);
+                let ps = px_prop(&part, "width").or_else(|| px_prop(&part, "height")).unwrap_or(16.0);
+                let ink = Some(cx.str("iconColor")).filter(|c| c.starts_with('#')).map(str::to_string).or_else(|| color.clone());
+                out.extend(svg_piece(picked, x, centred_v(ps), ps, ink.as_deref(), ""));
+                x += ps + gap;
+            }
+            let lift = px_prop(&part_props(cx.theme, cx.mode, owner, "value", cx.owner_props, &disabled), "marginTop").unwrap_or(0.0);
+            let tw = (cx0 + cw - glyph - gap - x).max(1.0);
+            let mut extra = String::from("overflow:hidden;text-overflow:ellipsis;");
+            if let Some(c) = color {
+                let _ = write!(extra, "color:{c};");
+            }
+            if let Some(o) = fade.filter(|o| *o < 1.0) {
+                let _ = write!(extra, "opacity:{};", f(o));
+            }
+            if variant == Some("row") {
+                extra.push_str("text-align:right;");
+            }
+            out.push(text_piece(format!("left:{}px;top:{}px;width:{}px;", f(x), f(centred_v(ts.line_height) + lift), f(tw)), ts, shown, Wrap::NoWrap, &extra));
+            let icon = if cx.str("icon").is_empty() { "ui-chevron-down" } else { cx.str("icon") };
+            out.extend(svg_piece(icon, cx0 + cw - glyph, centred_v(glyph), glyph, glyph_ink.as_deref(), &format!("opacity:{};", f(glyph_fade))));
         }
         ("Input" | "Textarea" | "NumberField", Some("field" | "input")) => {
             let value = display_text(n.props.get("value"));

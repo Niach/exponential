@@ -81,6 +81,9 @@ fn benchlist(variable: bool) {
     let rss_first = rss_mb();
     let mut steps = Vec::new();
     let mut layout = Vec::new();
+    let mut mirror = Vec::new();
+    let mut settle = Vec::new();
+    let mut restyled = Vec::new();
     let mut nodes = 0;
     for k in 1..=100 {
         let t = Instant::now();
@@ -89,15 +92,22 @@ fn benchlist(variable: bool) {
             d.surface.scroll("root", k as f32 * lh);
             let s = d.pass();
             layout.push(s.layout_ms);
+            mirror.push(s.mirror_ms);
+            restyled.push(s.restyled as f64);
             nodes = s.nodes;
         }
+        let ts = Instant::now();
         host::frame(&mut harness);
+        settle.push(ts.elapsed().as_secs_f64() * 1000.0);
         steps.push(t.elapsed().as_secs_f64() * 1000.0);
     }
     let reached = doc.borrow().surface.scroll_offset("root").1;
     let (m, p, x, med) = stats(steps);
     let (lm, _, _, _) = stats(layout);
-    println!("{}", json!({"renderer": "zgui", "variable": variable, "list_first_frame_ms": list_first, "rss_after_list_first_mb": rss_first, "scroll_mean_ms": m, "scroll_p95_ms": p, "scroll_max_ms": x, "scroll_median_ms": med, "core_layout_mean_ms": lm, "scroll_reached_px": reached, "placed_nodes": nodes, "rss_after_scroll_mb": rss_mb()}));
+    let (mm, _, _, _) = stats(mirror);
+    let (sm, _, _, _) = stats(settle);
+    let (rm, _, _, _) = stats(restyled);
+    println!("{}", json!({"renderer": "zgui", "variable": variable, "list_first_frame_ms": list_first, "rss_after_list_first_mb": rss_first, "scroll_mean_ms": m, "scroll_p95_ms": p, "scroll_max_ms": x, "scroll_median_ms": med, "core_layout_mean_ms": lm, "mirror_mean_ms": mm, "zgui_frame_mean_ms": sm, "restyled_mean": rm, "scroll_reached_px": reached, "placed_nodes": nodes, "rss_after_scroll_mb": rss_mb()}));
     std::mem::forget(harness);
 }
 

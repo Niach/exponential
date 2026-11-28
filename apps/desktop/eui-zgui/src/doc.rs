@@ -81,6 +81,7 @@ pub struct Doc {
     pub width: f32,
     pub height: f32,
     first: bool,
+    recycle: bool,
     pub last: Option<LayoutOutput>,
 }
 
@@ -88,9 +89,12 @@ impl Doc {
     pub fn new(id: &str, fonts: &zgui::app::Fonts, theme: Option<Arc<ResolvedTheme>>, mode: Mode, width: f32, height: f32) -> Doc {
         let mut surface = Surface::new(id, SurfaceOptions { theme: theme.clone(), mode, ..Default::default() });
         surface.set_viewport(width, height, None);
+        let mut measure = ZMeasure::new(fonts);
+        measure.theme = theme.clone();
+        measure.mode = mode;
         Doc {
             surface,
-            measure: ZMeasure::new(fonts),
+            measure,
             theme,
             mode,
             nodes: Vec::new(),
@@ -102,6 +106,7 @@ impl Doc {
             width,
             height,
             first: true,
+            recycle: std::env::var("EUI_ZGUI_RECYCLE").map(|v| v != "0").unwrap_or(true),
             last: None,
         }
     }
@@ -158,7 +163,9 @@ impl Doc {
                     if self.nodes.len() <= i {
                         self.nodes.resize(i + 1, None);
                     }
-                    if d.added.contains(&n.index) {
+                    // Recycling (default): a slot the core reuses keeps its zgui
+                    // element (every part of it is signal-driven); off = a fresh one.
+                    if d.added.contains(&n.index) && !self.recycle {
                         if let Some(c) = self.cached.get_mut(i) {
                             c.generation += 1;
                         }
@@ -218,7 +225,8 @@ impl Doc {
             let ink = vis.color.clone().or_else(|| n.parent.and_then(|p| inks.get(p as usize).cloned().flatten()));
             inks[i] = ink;
             let leaf = n.kind == NodeKind::Leaf;
-            let key = hash_of(&(rel_bits(rel), serde_json::to_string(&n.props).unwrap_or_default(), &n.states, vis_key(&vis)));
+            // Re-derived only when the frame moved or the core reported the node (delta, visual change: `css_key` reset to 0).
+            let key = hash_of(&rel_bits(rel)) | 1;
             let slot = self.slot(n.index);
             let c = &mut self.cached[i];
             if c.css_key != key {

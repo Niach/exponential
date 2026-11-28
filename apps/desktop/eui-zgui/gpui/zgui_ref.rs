@@ -145,21 +145,43 @@ fn content_height(id: &str, w: f32) -> f32 {
     h.ceil().max(200.0)
 }
 
+/// The page behind the surface: the theme's `background` (as `exponential-shot`'s Frame).
+struct Page {
+    view: gpui::Entity<SurfaceView>,
+}
+impl gpui::Render for Page {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        use gpui::{div, ParentElement as _, Styled as _};
+        let bg = eui_core::themes::builtin_theme("exponential").and_then(|t| t.modes.get(Mode::Dark).color.get("background").cloned()).and_then(|h| eui_gpui::paint::color::parse_hex(&h)).unwrap_or(gpui::black());
+        div().size_full().bg(bg).child(self.view.clone())
+    }
+}
+
 fn shot(id: &str, out: &str, w: f32, h: f32) {
     let (node, states) = specimen(id);
     let mut cx = context(true);
     let opts = options(w, "shot");
-    let window = cx.open_window(size(px(w), px(h)), move |window, cx| cx.new(|cx| SurfaceView::new(opts, window, cx))).unwrap();
+    let window = cx.open_window(size(px(w), px(h)), move |window, cx| {
+        let view = cx.new(|cx| SurfaceView::new(opts, window, cx));
+        cx.new(|_| Page { view })
+    }).unwrap();
     for i in 0..3 {
         cx.run_until_parked();
-        frame(&mut cx, window, &mut |view, window, cx| {
-            if i == 0 {
-                view.set_forced_states(states.clone(), cx);
-                view.set_nested(node.clone(), cx);
-                view.set_viewport_height(h, cx);
-            }
-            window.refresh();
-        });
+        window
+            .update(&mut cx, |page, window, cx| {
+                page.view.update(cx, |view, cx| {
+                    if i == 0 {
+                        view.set_forced_states(states.clone(), cx);
+                        view.set_nested(node.clone(), cx);
+                        view.set_viewport_height(h, cx);
+                    }
+                    view.layout_now(window, cx);
+                    cx.notify();
+                });
+                window.refresh();
+            })
+            .unwrap();
+        cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx)).unwrap();
     }
     let img = cx.capture_screenshot(window.into()).unwrap();
     img.save(out).unwrap();

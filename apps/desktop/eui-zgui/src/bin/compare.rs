@@ -15,6 +15,8 @@ const DELTA: u8 = 8;
 const PASS_PERCENT: f64 = 1.0;
 
 struct Result {
+    /// Informational: pixels with no match within 1 px in the other image (anti-aliasing / sub-pixel tolerant).
+    shifted: u64,
     differing: u64,
     total: u64,
     max_delta: u8,
@@ -24,7 +26,21 @@ struct Result {
 fn compare(a: &RgbaImage, b: &RgbaImage) -> Result {
     let (w, h) = (a.width().max(b.width()), a.height().max(b.height()));
     let mut diff = RgbaImage::new(w, h);
-    let (mut differing, mut max_delta) = (0u64, 0u8);
+    let (mut differing, mut max_delta, mut shifted) = (0u64, 0u8, 0u64);
+    let near = |x: u32, y: u32, p: &Rgba<u8>, img: &RgbaImage| -> bool {
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                if nx >= 0 && ny >= 0 && (nx as u32) < img.width() && (ny as u32) < img.height() {
+                    let q = img.get_pixel(nx as u32, ny as u32);
+                    if (0..3).all(|c| p[c].abs_diff(q[c]) <= DELTA) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    };
     for y in 0..h {
         for x in 0..w {
             let pa = (x < a.width() && y < a.height()).then(|| a.get_pixel(x, y));
@@ -37,13 +53,16 @@ fn compare(a: &RgbaImage, b: &RgbaImage) -> Result {
             let grey = pa.map(|p| ((p[0] as u16 + p[1] as u16 + p[2] as u16) / 3 / 4) as u8).unwrap_or(0);
             if d > DELTA {
                 differing += 1;
+                if !(pa.is_some_and(|p| near(x, y, p, b)) && pb.is_some_and(|p| near(x, y, p, a))) {
+                    shifted += 1;
+                }
                 diff.put_pixel(x, y, Rgba([255, 40u8.saturating_add(grey), 40, 255]));
             } else {
                 diff.put_pixel(x, y, Rgba([grey, grey, grey, 255]));
             }
         }
     }
-    Result { differing, total: w as u64 * h as u64, max_delta, diff }
+    Result { shifted, differing, total: w as u64 * h as u64, max_delta, diff }
 }
 
 fn load(p: &str) -> RgbaImage {
@@ -67,7 +86,7 @@ fn main() {
         std::fs::create_dir_all(od).unwrap();
         let mut ids: Vec<String> = std::fs::read_dir(gd).unwrap().flatten().filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".png")).map(str::to_string)).collect();
         ids.sort();
-        let mut table = format!("| component | size gpui | size zgui | differing px | % | max delta | pass (<= {PASS_PERCENT} %) |\n|---|---|---|---|---|---|---|\n");
+        let mut table = format!("| component | size gpui | size zgui | differing px | % | max delta | pass (<= {PASS_PERCENT} %) | % beyond a 1 px shift (info) |\n|---|---|---|---|---|---|---|---|\n");
         let mut results = Vec::new();
         for id in ids {
             let zp = format!("{zd}/{id}.png");
@@ -81,8 +100,9 @@ fn main() {
             r.diff.save(format!("{od}/{id}.diff.png")).unwrap();
             side_by_side(&g, &z, &r.diff).save(format!("{od}/{id}.side.png")).unwrap();
             let pass = pct <= PASS_PERCENT;
-            table.push_str(&format!("| {} | {}x{} | {}x{} | {} | {:.2} | {} | {} |\n", id.trim_start_matches("exponential-ui-"), g.width(), g.height(), z.width(), z.height(), r.differing, pct, r.max_delta, if pass { "yes" } else { "no" }));
-            results.push(json!({"id": id, "gpui": [g.width(), g.height()], "zgui": [z.width(), z.height()], "differing": r.differing, "percent": pct, "max_delta": r.max_delta, "pass": pass}));
+            let spct = r.shifted as f64 * 100.0 / r.total as f64;
+            table.push_str(&format!("| {} | {}x{} | {}x{} | {} | {:.2} | {} | {} | {:.2} |\n", id.trim_start_matches("exponential-ui-"), g.width(), g.height(), z.width(), z.height(), r.differing, pct, r.max_delta, if pass { "yes" } else { "no" }, spct));
+            results.push(json!({"shifted_percent": spct, "id": id, "gpui": [g.width(), g.height()], "zgui": [z.width(), z.height()], "differing": r.differing, "percent": pct, "max_delta": r.max_delta, "pass": pass}));
         }
         std::fs::write(format!("{od}/table.md"), &table).unwrap();
         std::fs::write(format!("{od}/results.json"), serde_json::to_string_pretty(&results).unwrap()).unwrap();
@@ -98,5 +118,5 @@ fn main() {
         r.diff.save(p).unwrap();
     }
     let pct = r.differing as f64 * 100.0 / r.total as f64;
-    println!("{}", json!({"differing": r.differing, "total": r.total, "percent": pct, "max_delta": r.max_delta, "pass": pct <= PASS_PERCENT}));
+    println!("{}", json!({"shifted_percent": r.shifted as f64 * 100.0 / r.total as f64, "differing": r.differing, "total": r.total, "percent": pct, "max_delta": r.max_delta, "pass": pct <= PASS_PERCENT}));
 }
