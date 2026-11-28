@@ -140,8 +140,8 @@ impl StallWatchdog {
         let minutes = silent_for.as_secs() / 60;
         format!(
             "Note from Exponential: this device interrupted your last step, not a person. It had \
-             produced nothing for {minutes} minutes, so the engine cancelled it; the CLI words that \
-             interrupt as the user's. Nobody asked you to stop. Carry on with your task from where \
+             produced nothing for {minutes} minutes, so the engine cancelled it. Nobody asked you to \
+             stop and nothing was rejected. Carry on with your task from where \
              you were; if a command hung, run it another way (in the background, or with a timeout)."
         )
     }

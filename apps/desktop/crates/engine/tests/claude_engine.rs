@@ -828,26 +828,36 @@ fn a_relaunch_note_is_a_feed_notice_and_leads_the_agents_first_input() {
     assert!(!rows.iter().any(|text| text.contains("Note from Exponential")), "never in a message row: {rows:?}");
 }
 
-/// #FEED-274 regression: the device interrupts a turn itself (here the quiet
-/// guard; the stall watchdog takes the same path). The CLI words EVERY
-/// interrupt as the user's ("The user doesn't want to proceed … STOP what
-/// you are doing and wait for the user"), so the agent halted and reported
-/// "I've stopped as you asked" with no stop in its transcript. Once the
-/// interrupted turn has settled the host now tells the agent it was the
-/// device, as its next input, exactly once.
+/// Danny, 2026-11-28 ("the harness wakes you up until you talk"): a team
+/// agent's tick answered with `quiet` is ONE clean quiet turn, end to end
+/// through the host: the hook stops the CLI after the first `quiet` (the
+/// fixture's model would keep calling it), so the device never interrupts,
+/// never hands the agent a note (#FEED-274's line, which every client drew
+/// as the member's own message), no nudge filler is said and no reply is
+/// posted to the chat.
 #[test]
-fn a_turn_the_device_interrupted_is_followed_by_a_line_saying_it_was_the_device() {
+fn a_quiet_tick_is_one_clean_turn_with_no_bubble_no_nudge_and_no_note() {
     let _session = one_session_at_a_time();
-    let harness = start("quiet-loop", None);
+    let conversation = Arc::new(RecordingConversation::default());
+    let harness = start_parts("quiet-loop", None, None, None, Some(conversation.clone()), None);
     until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
-    harness.session.send_prompt("Dismissed: the ask card.".to_string());
-    until("the interrupted turn to end", || ended_turns(&harness.sink) >= 1);
-    until("the agent to be told", || user_lines(&harness.work).len() >= 2);
-    std::thread::sleep(Duration::from_millis(300));
-    let lines = user_lines(&harness.work);
-    assert_eq!(lines.len(), 2, "told once: {lines:?}");
-    assert_eq!(lines[1], engine::adapters::claude::QUIET_INTERRUPT_NOTE);
-    assert!(lines[1].contains("not a person") && lines[1].contains("Nobody asked you to stop"));
+    harness.session.deliver("m-1".to_string(), "Schedule `*/30 * * * *` fired.".to_string());
+    until("the quiet turn to end", || ended_turns(&harness.sink) >= 1);
+    // Past the coalescers' flush and the settle edge the note used to ride.
+    std::thread::sleep(Duration::from_millis(1200));
+    assert_eq!(user_lines(&harness.work), vec!["Schedule `*/30 * * * *` fired.".to_string()], "no device note");
+    let rows: Vec<String> = events_of(&harness.sink, "user_message")
+        .iter()
+        .map(|row| row["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(!rows.iter().any(|text| text.contains("Note from Exponential")), "no member bubble: {rows:?}");
+    let said: Vec<String> = events_of(&harness.sink, "narration")
+        .iter()
+        .map(|row| row["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(said.is_empty(), "nothing said, no nudge filler: {said:?}");
+    assert!(conversation.replies().is_empty(), "no chat message: {:?}", conversation.replies());
+    assert_eq!(ended_turns(&harness.sink), 1, "one turn");
 }
 
 /// #FEED-289: a start on a login past its weekly limit, replayed from the

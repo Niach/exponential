@@ -95,7 +95,7 @@ pub use crate::engine::local::INJECTED_PROMPT_META_KEY;
 /// EXP-850: the three `_meta` keys this adapter's new state rides on, plus
 /// the two a WAIT tool row carries (ACP v1 has no `wait` kind).
 pub use crate::engine::local::{
-    BACKGROUND_TASKS_META_KEY, DEVICE_INTERRUPT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_META_KEY,
+    BACKGROUND_TASKS_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_META_KEY,
     TURN_TOKENS_META_KEY, TURN_WRITING_META_KEY, WORKFLOW_META_KEY,
 };
 
@@ -819,13 +819,14 @@ struct State {
     /// cleared by it — the CLI's own prewait latch, ported.
     cancel_epoch: u64,
     closed: bool,
-    /// #EXP-1828: a second `quiet` with no new prompt interrupts the turn.
-    quiet_guard: wire::QuietGuard,
+    /// The running turn may end without a word: it is a team agent's
+    /// schedule or event tick, or the agent called `quiet` in it.
+    silent_turn: bool,
+    /// The CLI nudged a [`Self::silent_turn`] for "visible output"
+    /// ([`wire::NO_VISIBLE_OUTPUT_NUDGE`]): what the model writes in answer is
+    /// filler ("Nothing new since the last update."), never a chat message.
+    nudged_filler: bool,
 }
-
-/// #FEED-274: what the agent is told after the quiet guard interrupted its
-/// turn (the CLI's own words for an interrupt name "the user").
-pub const QUIET_INTERRUPT_NOTE: &str = "Note from Exponential: this device ended your last turn, not a person. You kept calling quiet with nothing new in between, and the CLI words that interrupt as the user rejecting your tool call. Nobody asked you to stop. If work is left, carry on with it now; if not, end this turn without a reply.";
 
 /// EXP-784: what the adapter knows about the plan window, from the CLI's
 /// `rate_limit_event`s and its synthetic "You've hit your…" notices.
@@ -2091,8 +2092,9 @@ impl ClaudeSession {
             // EXP-1224 review: this prompt is the next turn; a notification
             // that landed before it is answered in it.
             state.notification_pending = false;
-            // #EXP-1828: a real message: the agent may answer it with quiet.
-            state.quiet_guard.on_prompt();
+            // A tick may end without a word; a person's message is answered.
+            state.silent_turn = wire::is_tick_prompt(&text);
+            state.nudged_filler = false;
             let line = (!new_conversation).then(|| message.clone());
             let echo = if new_conversation { String::new() } else { wire::prompt_to_claude(&text) };
             state.turns.push_back(OpenTurn::new(tx, &echo, line));
@@ -2221,10 +2223,10 @@ impl ClaudeSession {
             && state.deferred.is_none()
             && !state.continuation_end_pending;
         state.continuation_running = true;
-        // #FEED-274: a turn the CLI opens itself answers something new (a
-        // finished background task): the agent may answer THAT quiet once.
-        // The loop the guard is for re-wakes inside one turn, never here.
-        state.quiet_guard.on_prompt();
+        // A turn the CLI opens itself answers something new (a finished
+        // background task): its own answer, quiet or not.
+        state.silent_turn = false;
+        state.nudged_filler = false;
         // A continuation that starts while the previous one waits on its
         // tasks supersedes that end: the agent is working again.
         state.continuation_end_pending = false;
@@ -3870,9 +3872,6 @@ impl ClaudeSession {
                         // for it) the continuation still follows — right
                         // after this turn's `result`, which opens it then.
                         state.notification_pending = true;
-                        // #FEED-274: a finished background task IS a new
-                        // inbound message: the agent may answer it quiet.
-                        state.quiet_guard.on_prompt();
                         if between_turns {
                             self.begin_continuation(cx, &mut state, true);
                         }
@@ -4013,34 +4012,11 @@ impl ClaudeSession {
         if model != Some(wire::SYNTHETIC_MODEL) && wire::is_real_assistant_activity(&blocks) {
             self.clear_rate_limit_notice(cx);
         }
-        // #EXP-1828: `quiet` is final. A run of them since the last prompt
-        // (`wire::QUIET_LOOP`) means the turn keeps being re-woken without a
-        // new message (Claude Code's silent-turn reminder looped a team agent
-        // 17 times): stop the turn (not a Stop: queued messages still flow,
-        // the turn ends normally).
-        // #FEED-246: real work in the same message (or before) re-arms it.
-        if parent.is_none() && wire::calls_work(&blocks) {
-            self.lock().quiet_guard.on_work();
-        }
+        // #EXP-1828: `quiet` is final. The CLI ends the turn right after its
+        // result (`on_hook_callback`); a second one in the same message is a
+        // no-op, never a loop to interrupt.
         if parent.is_none() && wire::calls_quiet(&blocks) {
-            let repeat = {
-                let mut state = self.lock();
-                !state.replaying_history && !state.closed && state.quiet_guard.on_quiet()
-            };
-            if repeat {
-                log::warn!("engine: claude keeps calling quiet without a new message; interrupting the turn");
-                if let Err(error) = self.send(wire::control_request(
-                    &wire::new_request_id(),
-                    wire::interrupt(false),
-                )) {
-                    log::warn!("engine: claude quiet-loop interrupt failed: {error}");
-                }
-                // #FEED-274: the CLI tells the model "the user" interrupted;
-                // the host tells it who really did.
-                let mut meta = Map::new();
-                meta.insert(DEVICE_INTERRUPT_META_KEY.to_string(), json!(QUIET_INTERRUPT_NOTE));
-                self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
-            }
+            self.lock().silent_turn = true;
         }
 
         // Each text/thinking block may already have streamed as deltas: diff
@@ -4101,7 +4077,13 @@ impl ClaudeSession {
             return;
         }
         if !thinking {
-            self.lock().delivered_text = true;
+            let mut state = self.lock();
+            state.delivered_text = true;
+            // The answer to the CLI's "no visible output" nudge on a turn
+            // that may end silently is filler: never a chat message.
+            if parent.is_none() && state.nudged_filler {
+                return;
+            }
         }
         let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)))
             .message_id(message_id.map(MessageId::new));
@@ -4264,6 +4246,25 @@ impl ClaudeSession {
         // none of it becomes a user bubble. The `tool_result` blocks of such
         // an entry are still honoured: they are the agent's own plumbing.
         let injected = message.is_meta || message.is_synthetic || message.is_compact_summary;
+        // Claude Code nudges a turn that ended with no text to "produce a
+        // user-visible response". On a tick or after `quiet` silence IS the
+        // answer: what the model writes next is filler and stays off the chat.
+        if injected && parent.is_none() && !message.is_replay {
+            let nudged = blocks.iter().any(|block| {
+                block.get("type").and_then(Value::as_str) == Some("text")
+                    && block
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| text.trim_start().starts_with(wire::NO_VISIBLE_OUTPUT_NUDGE))
+            });
+            if nudged {
+                let mut state = self.lock();
+                if state.silent_turn && !state.replaying_history {
+                    log::info!("engine: claude nudged a silent turn for visible output; its filler stays off the chat");
+                    state.nudged_filler = true;
+                }
+            }
+        }
         // #FEED-229: a main-lane replay means the CLI read that prompt.
         if message.is_replay && !injected && parent.is_none() {
             let text: Vec<&str> = blocks
@@ -4822,9 +4823,20 @@ impl ClaudeSession {
         request: wire::ControlReq,
     ) {
         let callback = request.callback_id.clone().unwrap_or_default();
-        let _ = self.send(wire::control_response_success(&request_id, json!({ "continue": true })));
         let input: wire::HookInput =
             serde_json::from_value(request.input.clone()).unwrap_or_default();
+        // Quiet ends the turn: the main lane's `quiet` stops the CLI right
+        // after its result, whatever the model would do next.
+        let quiet = callback == wire::HOOK_POST_TOOL_USE
+            && wire::is_quiet_call(&input.tool_name, &input.tool_input)
+            && !input.extra.contains_key("agent_id");
+        let answer = if quiet {
+            log::info!("engine: claude called quiet; ending the turn after its result");
+            wire::quiet_hook_response()
+        } else {
+            json!({ "continue": true })
+        };
+        let _ = self.send(wire::control_response_success(&request_id, answer));
         match callback.as_str() {
             wire::HOOK_POST_TOOL_USE => self.on_post_tool_use(cx, &input),
             wire::HOOK_POST_MODEL_SWITCH => {
