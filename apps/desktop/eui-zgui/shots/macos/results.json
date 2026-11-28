@@ -1,0 +1,322 @@
+[
+  {
+    "shifted_percent": 0.6903872282608695,
+    "id": "exponential-ui-badge",
+    "gpui": [
+      1440,
+      736
+    ],
+    "zgui": [
+      1440,
+      736
+    ],
+    "differing": 8743,
+    "percent": 0.8249358393719807,
+    "max_delta": 245,
+    "pass": true
+  },
+  {
+    "shifted_percent": 0.9452124638579099,
+    "id": "exponential-ui-button",
+    "gpui": [
+      1440,
+      2152
+    ],
+    "zgui": [
+      1440,
+      2152
+    ],
+    "differing": 32227,
+    "percent": 1.0399563713341595,
+    "max_delta": 240,
+    "pass": false
+  },
+  {
+    "shifted_percent": 0.8471800494826811,
+    "id": "exponential-ui-card",
+    "gpui": [
+      1440,
+      1976
+    ],
+    "zgui": [
+      1440,
+      1976
+    ],
+    "differing": 27704,
+    "percent": 0.9736279802069275,
+    "max_delta": 240,
+    "pass": true
+  },
+  {
+    "shifted_percent": 0.7512538580246914,
+    "id": "exponential-ui-checkbox",
+    "gpui": [
+      1440,
+      720
+    ],
+    "zgui": [
+      1440,
+      720
+    ],
+    "differing": 8962,
+    "percent": 0.8643904320987654,
+    "max_delta": 240,
+    "pass": true
+  },
+  {
+    "shifted_percent": 7.883256724548859,
+    "id": "exponential-ui-code-block",
+    "gpui": [
+      1440,
+      3916
+    ],
+    "zgui": [
+      1440,
+      3916
+    ],
+    "differing": 473047,
+    "percent": 8.388786034502326,
+    "max_delta": 245,
+    "pass": false
+  },
+  {
+    "shifted_percent": 66.92881944444444,
+    "id": "exponential-ui-dialog",
+    "gpui": [
+      1440,
+      400
+    ],
+    "zgui": [
+      1440,
+      400
+    ],
+    "differing": 385559,
+    "percent": 66.93732638888889,
+    "max_delta": 245,
+    "pass": false
+  },
+  {
+    "shifted_percent": 0.9017857142857143,
+    "id": "exponential-ui-grid",
+    "gpui": [
+      1440,
+      560
+    ],
+    "zgui": [
+      1440,
+      560
+    ],
+    "differing": 8448,
+    "percent": 1.0476190476190477,
+    "max_delta": 240,
+    "pass": false
+  },
+  {
+    "shifted_percent": 0.7693034928492849,
+    "id": "exponential-ui-heading",
+    "gpui": [
+      1440,
+      808
+    ],
+    "zgui": [
+      1440,
+      808
+    ],
+    "differing": 10227,
+    "percent": 0.8789707095709571,
+    "max_delta": 240,
+    "pass": true
+  },
+  {
+    "shifted_percent": 0.4282618613138686,
+    "id": "exponential-ui-icon",
+    "gpui": [
+      1440,
+      1096
+    ],
+    "zgui": [
+      1440,
+      1096
+    ],
+    "differing": 7948,
+    "percent": 0.5035989456609895,
+    "max_delta": 240,
+    "pass": true
+  },
+  {
+    "shifted_percent": 1.4182327258921792,
+    "id": "exponential-ui-input",
+    "gpui": [
+      1440,
+      2634
+    ],
+    "zgui": [
+      1440,
+      2634
+    ],
+    "differing": 94352,
+    "percent": 2.4875558930228636,
+    "max_delta": 240,
+    "pass": false
+  },
+  {
+    "shifted_percent": 0.7598958333333333,
+    "id": "exponential-ui-list",
+    "gpui": [
+      1440,
+      400
+    ],
+    "zgui": [
+      1440,
+      400
+    ],
+    "differing": 4942,
+    "percent": 0.8579861111111111,
+    "max_delta": 240,
+    "pass": true
+  },
+  {
+    "shifted_percent": 2.72488619904821,
+    "id": "exponential-ui-markdown",
+    "gpui": [
+      1440,
+      1074
+    ],
+    "zgui": [
+      1440,
+      1074
+    ],
+    "differing": 44444,
+    "percent": 2.8737326712187046,
+    "max_delta": 240,
+    "pass": false
+  },
+  {
+    "shifted_percent": 0.8484828379334749,
+    "id": "exponential-ui-progress",
+    "gpui": [
+      1440,
+      1256
+    ],
+    "zgui": [
+      1440,
+      1256
+    ],
+    "differing": 18736,
+    "percent": 1.0359164897381459,
+    "max_delta": 240,
+    "pass": false
+  },
+  {
+    "shifted_percent": 1.2683658050411524,
+    "id": "exponential-ui-row",
+    "gpui": [
+      1440,
+      1728
+    ],
+    "zgui": [
+      1440,
+      1728
+    ],
+    "differing": 35366,
+    "percent": 1.4212802211934157,
+    "max_delta": 240,
+    "pass": false
+  },
+  {
+    "shifted_percent": 3.6966971761033065,
+    "id": "exponential-ui-select",
+    "gpui": [
+      1440,
+      3132
+    ],
+    "zgui": [
+      1440,
+      3132
+    ],
+    "differing": 205000,
+    "percent": 4.545373917979282,
+    "max_delta": 240,
+    "pass": false
+  },
+  {
+    "shifted_percent": 1.2793803418803418,
+    "id": "exponential-ui-stack",
+    "gpui": [
+      1440,
+      416
+    ],
+    "zgui": [
+      1440,
+      416
+    ],
+    "differing": 8326,
+    "percent": 1.3898904914529915,
+    "max_delta": 240,
+    "pass": false
+  },
+  {
+    "shifted_percent": 0.8699474715099715,
+    "id": "exponential-ui-switch",
+    "gpui": [
+      1440,
+      624
+    ],
+    "zgui": [
+      1440,
+      624
+    ],
+    "differing": 8855,
+    "percent": 0.9854656339031339,
+    "max_delta": 240,
+    "pass": true
+  },
+  {
+    "shifted_percent": 2.1394920448617634,
+    "id": "exponential-ui-tabs",
+    "gpui": [
+      1440,
+      1704
+    ],
+    "zgui": [
+      1440,
+      1704
+    ],
+    "differing": 57175,
+    "percent": 2.3300974830464267,
+    "max_delta": 240,
+    "pass": false
+  },
+  {
+    "shifted_percent": 3.667405437352246,
+    "id": "exponential-ui-text",
+    "gpui": [
+      1440,
+      1880
+    ],
+    "zgui": [
+      1440,
+      1880
+    ],
+    "differing": 106100,
+    "percent": 3.919178486997636,
+    "max_delta": 245,
+    "pass": false
+  },
+  {
+    "shifted_percent": 0.7576744002525253,
+    "id": "exponential-ui-textarea",
+    "gpui": [
+      1440,
+      2112
+    ],
+    "zgui": [
+      1440,
+      2112
+    ],
+    "differing": 25060,
+    "percent": 0.8239951599326599,
+    "max_delta": 240,
+    "pass": true
+  }
+]

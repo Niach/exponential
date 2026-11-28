@@ -1,0 +1,35 @@
+# #EDE-279: the zgui renderer trial. Its OWN workspace: never a member of
+# apps/desktop/Cargo.toml, not linked by the app, the CLI or any CI workflow.
+[workspace]
+resolver = "3"
+members = ["."]
+
+[package]
+name = "eui-zgui"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+description = "eUI painter + measurer + window host on zgui (zortax/zgui), behind eui-core. Trial only (#EDE-279)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+eui-core = { path = "../crates/eui-core" }
+# zortax/zgui pinned (Apache-2.0): the spike's rev, still upstream HEAD on 2026-11-28.
+zgui = { git = "https://github.com/zortax/zgui", rev = "ee29c7dc66206eb04ba7bcf514058a278c9070ba" }
+zgui-platform-headless = { git = "https://github.com/zortax/zgui", rev = "ee29c7dc66206eb04ba7bcf514058a278c9070ba" }
+zgui-layout = { git = "https://github.com/zortax/zgui", rev = "ee29c7dc66206eb04ba7bcf514058a278c9070ba" }
+zgui-render-wgpu = { git = "https://github.com/zortax/zgui", rev = "ee29c7dc66206eb04ba7bcf514058a278c9070ba" }
+zgui-text = { git = "https://github.com/zortax/zgui", rev = "ee29c7dc66206eb04ba7bcf514058a278c9070ba" }
+zgui-text-style = { git = "https://github.com/zortax/zgui", rev = "ee29c7dc66206eb04ba7bcf514058a278c9070ba" }
+zgui-text-parley = { git = "https://github.com/zortax/zgui", rev = "ee29c7dc66206eb04ba7bcf514058a278c9070ba" }
+zgui-interned = { git = "https://github.com/zortax/zgui", rev = "ee29c7dc66206eb04ba7bcf514058a278c9070ba" }
+zgui-scene = { git = "https://github.com/zortax/zgui", rev = "ee29c7dc66206eb04ba7bcf514058a278c9070ba" }
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = "2"
+image = { version = "0.25", default-features = false, features = ["png", "webp"] }
+
+[profile.release]
+debug = false
