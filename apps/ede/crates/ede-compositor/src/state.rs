@@ -694,6 +694,13 @@ impl Ede {
         if self.focused_window(DeskId::PERSON).as_ref() == Some(window) {
             return;
         }
+        // #EDE-277: an X11 window given the focus before Xwayland handed
+        // it a surface holds it already (the keyboard follows on
+        // `surface_associated`): its call came in with the focus.
+        #[cfg(feature = "xwayland")]
+        if window.x11_surface().is_some() && self.desk.pending_x11_focus.as_ref() == window.x11_surface() {
+            return;
+        }
         let mut st = window_state(window);
         if st.urgent {
             return;
