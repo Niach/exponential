@@ -148,6 +148,15 @@ public enum Trace {
     ) -> TraceLineModel {
         let status: TraceStatus? = failed ? .error : (settled ? nil : .running)
         let cleanDetail = clean(detail)
+        // EDE-271: a computer tool reads its contract caption whatever its kind.
+        if let caption = ExpToolDisplay.computerCaption(toolName: name, settled: settled || failed) {
+            return TraceLineModel(
+                icon: Icons.tool,
+                title: caption,
+                description: cleanDetail.isEmpty ? nil : cleanDetail,
+                status: status
+            )
+        }
         guard let verb = verbs[toolKind] else {
             let title = clean(name)
             return TraceLineModel(

@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-28-readable-computer-use-steps`,
+    date: `2026-11-28`,
+    title: `Readable computer-use steps`,
+    summary: `A computer-use session's steps now read as words everywhere you see them: "Taking screenshot", "Typed", "Clicked" instead of tool names like mcp__computer__type.`,
+    body: `- **Readable steps**: screenshots, clicks, typing, keys, scrolling, dragging, windows, the clipboard and app launches each read as a short caption, in the tense the step is in.
+- **Everywhere**: the computer-use tray, the session area and the transcript on the web, desktop, iPhone and Android read the same words.`,
+  },
+  {
     id: `2026-11-28-quiet-check-ins`,
     date: `2026-11-28`,
     title: `Quiet check-ins stay quiet`,

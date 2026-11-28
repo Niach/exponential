@@ -162,6 +162,15 @@ object Trace {
         }
         val verbs = TraceSpec.VERBS[toolKind]
         val cleaned = clean(detail)
+        // EDE-271: a computer tool reads its contract caption whatever its kind.
+        ExpToolDisplay.computerCaption(name, settled || failed)?.let { caption ->
+            return TraceLineModel(
+                icon = TraceSpec.ICON_TOOL,
+                title = caption,
+                description = cleaned.ifEmpty { null },
+                status = status,
+            )
+        }
         if (verbs == null) {
             return TraceLineModel(
                 icon = TraceSpec.ICON_TOOL,
