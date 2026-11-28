@@ -1,0 +1,4 @@
+# zgui's published crates build on stable >= 1.90 (its repo pins nightly-2026-04-16 for dev only).
+[toolchain]
+channel = "1.96.0"
+profile = "minimal"
