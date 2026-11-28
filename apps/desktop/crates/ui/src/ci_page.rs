@@ -204,10 +204,11 @@ fn filtered(filter: &CiRunFilter) -> bool {
 // ── Pull requests ─────────────────────────────────────────────────────────
 
 /// One PR (or branch): its rolled-up status, the deciding run's line and,
-/// wide, the merge queue pill; its runs fold under it (compact rows).
+/// wide, the merge queue pill; a press opens that run (#EXP-2214: no folded
+/// runs, genUI's foldable Row drops its leading and trailing slots).
 fn subject_row(row: &CiSubjectRow, phone: bool) -> Value {
     let id = format!("{}.{}", model::test_id("prRow"), row.id);
-    let mut props = json!({"title": row.title, "subtitle": if phone { &row.phone_subtitle } else { &row.subtitle }, "pressable": true, "open": false});
+    let mut props = json!({"title": row.title, "subtitle": if phone { &row.phone_subtitle } else { &row.subtitle }, "pressable": true});
     if let Some(identifier) = &row.identifier {
         props["identifier"] = json!(identifier);
     }
@@ -222,20 +223,7 @@ fn subject_row(row: &CiSubjectRow, phone: bool) -> Value {
         }
         slots["trailing"] = hstack(&format!("{id}.trailing"), trailing);
     }
-    let runs: Vec<Value> = row
-        .runs
-        .iter()
-        .map(|run| {
-            json!({
-                "id": format!("{id}.run.{}", run.id),
-                "component": "Row",
-                "props": {"title": run.workflow, "meta": run.phone_meta, "density": "compact", "pressable": true},
-                "slots": {"leading": glyph(&format!("{id}.run.{}.glyph", run.id), run.glyph, run.tone)},
-                "on": open_run(&run.id),
-            })
-        })
-        .collect();
-    json!({"id": id, "component": "Row", "props": props, "slots": slots, "children": runs, "on": open_run(&row.run_id)})
+    json!({"id": id, "component": "Row", "props": props, "slots": slots, "on": open_run(&row.run_id)})
 }
 
 fn subject_sections(id: &str, groups: &[CiSubjectGroup], phone: bool, empty: &str) -> Value {
@@ -297,12 +285,15 @@ fn now_card(now: &CiQueueNow, id: &str) -> Value {
         "children": members,
     }));
     if let Some(run_id) = &now.run_id {
-        children.push(json!({
-            "id": format!("{id}.open"),
-            "component": "Button",
-            "props": {"label": copy("openRun"), "icon": "external-link", "variant": "outline", "size": "sm"},
-            "on": open_run(run_id),
-        }));
+        children.push(hstack(
+            &format!("{id}.actions"),
+            vec![json!({
+                "id": format!("{id}.open"),
+                "component": "Button",
+                "props": {"label": copy("openRun"), "icon": "external-link", "variant": "outline", "size": "sm"},
+                "on": open_run(run_id),
+            })],
+        ));
     }
     json!({
         "id": id,
@@ -360,7 +351,7 @@ fn queue_row(row: &CiQueueRow, id: &str, phone: bool) -> Value {
     if let Some(subtitle) = &row.subtitle {
         props["subtitle"] = json!(subtitle);
     }
-    if let Some(at) = row.at.as_deref().filter(|_| phone) {
+    if let Some(at) = row.at.as_deref().filter(|_| phone && row.action.is_none()) {
         props["meta"] = relative(at);
     }
     let mut slots = json!({"leading": glyph(&format!("{id}.glyph"), row.glyph, row.tone)});

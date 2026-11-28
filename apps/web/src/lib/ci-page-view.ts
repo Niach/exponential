@@ -172,7 +172,9 @@ const filtered = (filter: CiRunFilter) => filter.status !== `all` || filter.repo
 // ── Pull requests ─────────────────────────────────────────────────────────
 
 /** One PR (or branch): its rolled-up status, the deciding run's line and,
- *  wide, the merge queue pill; its runs fold under it (compact rows). */
+ *  wide, the merge queue pill; a press opens that run. (#EXP-2214: the runs
+ *  do not fold under it: genUI's foldable Row drops its leading and trailing
+ *  slots, see the issue filed for it.) */
 function subjectRow(row: CiSubjectRow, phone: boolean): NestedNode {
   const id = `${CI_PAGE_TEST_IDS.prRow}.${row.id}`
   const trailing: NestedNode | null = phone
@@ -190,19 +192,11 @@ function subjectRow(row: CiSubjectRow, phone: boolean): NestedNode {
       subtitle: phone ? row.phoneSubtitle : row.subtitle,
       ...(phone ? { meta: row.meta } : {}),
       pressable: true,
-      open: false,
     },
     slots: {
       leading: { id: `${id}.glyph`, component: `Icon`, props: { name: row.glyph, tone: row.tone, size: `sm` } },
       ...(trailing ? { trailing } : {}),
     },
-    children: row.runs.map((run) => ({
-      id: `${id}.run.${run.id}`,
-      component: `Row`,
-      props: { title: run.workflow, meta: run.phoneMeta, density: `compact`, pressable: true },
-      slots: { leading: { id: `${id}.run.${run.id}.glyph`, component: `Icon`, props: { name: run.glyph, tone: run.tone, size: `sm` } } },
-      on: openRun(run.id),
-    })),
     on: openRun(row.runId),
   }
 }
@@ -252,12 +246,16 @@ function nowCard(now: CiQueueNow, id: string): NestedNode {
     },
   ]
   if (now.runId) {
-    children.push({
-      id: `${id}.open`,
-      component: `Button`,
-      props: { label: copy.openRun, icon: `external-link`, variant: `outline`, size: `sm` },
-      on: openRun(now.runId),
-    })
+    children.push(
+      hstack(`${id}.actions`, [
+        {
+          id: `${id}.open`,
+          component: `Button`,
+          props: { label: copy.openRun, icon: `external-link`, variant: `outline`, size: `sm` },
+          on: openRun(now.runId),
+        },
+      ])
+    )
   }
   return { id, component: `Card`, props: { title: copy.testing, description: now.subtitle }, children: [vstack(`${id}.body`, children)] }
 }
@@ -308,7 +306,7 @@ function queueRow(row: CiQueueRow, id: string, phone: boolean): NestedNode {
       identifier: row.identifier,
       title: row.title,
       ...(row.subtitle ? { subtitle: row.subtitle } : {}),
-      ...(row.at && phone ? { meta: relative(row.at) } : {}),
+      ...(row.at && phone && !row.action ? { meta: relative(row.at) } : {}),
       pressable: true,
     },
     slots: {

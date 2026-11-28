@@ -82,8 +82,6 @@ import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/at
 import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
 import { Route as ApiShapesCiJobsRouteImport } from './routes/api/shapes/ci-jobs'
 import { Route as ApiShapesCiRunsRouteImport } from './routes/api/shapes/ci-runs'
-import { Route as ApiShapesMergeTrainsRouteImport } from './routes/api/shapes/merge-trains'
-import { Route as ApiShapesMergeTrainEventsRouteImport } from './routes/api/shapes/merge-train-events'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
 import { Route as ApiShapesComposerDraftsRouteImport } from './routes/api/shapes/composer-drafts'
 import { Route as ApiShapesConversationsRouteImport } from './routes/api/shapes/conversations'
@@ -98,6 +96,8 @@ import { Route as ApiShapesIssueStatusesRouteImport } from './routes/api/shapes/
 import { Route as ApiShapesIssueSubscribersRouteImport } from './routes/api/shapes/issue-subscribers'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
+import { Route as ApiShapesMergeTrainEventsRouteImport } from './routes/api/shapes/merge-train-events'
+import { Route as ApiShapesMergeTrainsRouteImport } from './routes/api/shapes/merge-trains'
 import { Route as ApiShapesMessagesRouteImport } from './routes/api/shapes/messages'
 import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
 import { Route as ApiShapesPromptsRouteImport } from './routes/api/shapes/prompts'
@@ -575,16 +575,6 @@ const ApiShapesCiRunsRoute = ApiShapesCiRunsRouteImport.update({
   path: '/api/shapes/ci-runs',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiShapesMergeTrainsRoute = ApiShapesMergeTrainsRouteImport.update({
-  id: '/api/shapes/merge-trains',
-  path: '/api/shapes/merge-trains',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesMergeTrainEventsRoute = ApiShapesMergeTrainEventsRouteImport.update({
-  id: '/api/shapes/merge-train-events',
-  path: '/api/shapes/merge-train-events',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
   id: '/api/shapes/comments',
   path: '/api/shapes/comments',
@@ -655,6 +645,17 @@ const ApiShapesIssuesRoute = ApiShapesIssuesRouteImport.update({
 const ApiShapesLabelsRoute = ApiShapesLabelsRouteImport.update({
   id: '/api/shapes/labels',
   path: '/api/shapes/labels',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesMergeTrainEventsRoute =
+  ApiShapesMergeTrainEventsRouteImport.update({
+    id: '/api/shapes/merge-train-events',
+    path: '/api/shapes/merge-train-events',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiShapesMergeTrainsRoute = ApiShapesMergeTrainsRouteImport.update({
+  id: '/api/shapes/merge-trains',
+  path: '/api/shapes/merge-trains',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesMessagesRoute = ApiShapesMessagesRouteImport.update({
@@ -1275,8 +1276,6 @@ export interface FileRoutesByFullPath {
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/ci-jobs': typeof ApiShapesCiJobsRoute
   '/api/shapes/ci-runs': typeof ApiShapesCiRunsRoute
-  '/api/shapes/merge-trains': typeof ApiShapesMergeTrainsRoute
-  '/api/shapes/merge-train-events': typeof ApiShapesMergeTrainEventsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/composer-drafts': typeof ApiShapesComposerDraftsRoute
   '/api/shapes/conversations': typeof ApiShapesConversationsRoute
@@ -1291,6 +1290,8 @@ export interface FileRoutesByFullPath {
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/merge-train-events': typeof ApiShapesMergeTrainEventsRoute
+  '/api/shapes/merge-trains': typeof ApiShapesMergeTrainsRoute
   '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
@@ -1461,8 +1462,6 @@ export interface FileRoutesByTo {
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/ci-jobs': typeof ApiShapesCiJobsRoute
   '/api/shapes/ci-runs': typeof ApiShapesCiRunsRoute
-  '/api/shapes/merge-trains': typeof ApiShapesMergeTrainsRoute
-  '/api/shapes/merge-train-events': typeof ApiShapesMergeTrainEventsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/composer-drafts': typeof ApiShapesComposerDraftsRoute
   '/api/shapes/conversations': typeof ApiShapesConversationsRoute
@@ -1477,6 +1476,8 @@ export interface FileRoutesByTo {
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/merge-train-events': typeof ApiShapesMergeTrainEventsRoute
+  '/api/shapes/merge-trains': typeof ApiShapesMergeTrainsRoute
   '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
@@ -1654,8 +1655,6 @@ export interface FileRoutesById {
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/ci-jobs': typeof ApiShapesCiJobsRoute
   '/api/shapes/ci-runs': typeof ApiShapesCiRunsRoute
-  '/api/shapes/merge-trains': typeof ApiShapesMergeTrainsRoute
-  '/api/shapes/merge-train-events': typeof ApiShapesMergeTrainEventsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/composer-drafts': typeof ApiShapesComposerDraftsRoute
   '/api/shapes/conversations': typeof ApiShapesConversationsRoute
@@ -1670,6 +1669,8 @@ export interface FileRoutesById {
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/merge-train-events': typeof ApiShapesMergeTrainEventsRoute
+  '/api/shapes/merge-trains': typeof ApiShapesMergeTrainsRoute
   '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
@@ -1846,8 +1847,6 @@ export interface FileRouteTypes {
     | '/api/shapes/boards'
     | '/api/shapes/ci-jobs'
     | '/api/shapes/ci-runs'
-    | '/api/shapes/merge-trains'
-    | '/api/shapes/merge-train-events'
     | '/api/shapes/comments'
     | '/api/shapes/composer-drafts'
     | '/api/shapes/conversations'
@@ -1862,6 +1861,8 @@ export interface FileRouteTypes {
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/merge-train-events'
+    | '/api/shapes/merge-trains'
     | '/api/shapes/messages'
     | '/api/shapes/notifications'
     | '/api/shapes/prompts'
@@ -2032,8 +2033,6 @@ export interface FileRouteTypes {
     | '/api/shapes/boards'
     | '/api/shapes/ci-jobs'
     | '/api/shapes/ci-runs'
-    | '/api/shapes/merge-trains'
-    | '/api/shapes/merge-train-events'
     | '/api/shapes/comments'
     | '/api/shapes/composer-drafts'
     | '/api/shapes/conversations'
@@ -2048,6 +2047,8 @@ export interface FileRouteTypes {
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/merge-train-events'
+    | '/api/shapes/merge-trains'
     | '/api/shapes/messages'
     | '/api/shapes/notifications'
     | '/api/shapes/prompts'
@@ -2224,8 +2225,6 @@ export interface FileRouteTypes {
     | '/api/shapes/boards'
     | '/api/shapes/ci-jobs'
     | '/api/shapes/ci-runs'
-    | '/api/shapes/merge-trains'
-    | '/api/shapes/merge-train-events'
     | '/api/shapes/comments'
     | '/api/shapes/composer-drafts'
     | '/api/shapes/conversations'
@@ -2240,6 +2239,8 @@ export interface FileRouteTypes {
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/merge-train-events'
+    | '/api/shapes/merge-trains'
     | '/api/shapes/messages'
     | '/api/shapes/notifications'
     | '/api/shapes/prompts'
@@ -2393,8 +2394,6 @@ export interface RootRouteChildren {
   ApiShapesBoardsRoute: typeof ApiShapesBoardsRoute
   ApiShapesCiJobsRoute: typeof ApiShapesCiJobsRoute
   ApiShapesCiRunsRoute: typeof ApiShapesCiRunsRoute
-  ApiShapesMergeTrainsRoute: typeof ApiShapesMergeTrainsRoute
-  ApiShapesMergeTrainEventsRoute: typeof ApiShapesMergeTrainEventsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesComposerDraftsRoute: typeof ApiShapesComposerDraftsRoute
   ApiShapesConversationsRoute: typeof ApiShapesConversationsRoute
@@ -2409,6 +2408,8 @@ export interface RootRouteChildren {
   ApiShapesIssueSubscribersRoute: typeof ApiShapesIssueSubscribersRoute
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
+  ApiShapesMergeTrainEventsRoute: typeof ApiShapesMergeTrainEventsRoute
+  ApiShapesMergeTrainsRoute: typeof ApiShapesMergeTrainsRoute
   ApiShapesMessagesRoute: typeof ApiShapesMessagesRoute
   ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
   ApiShapesPromptsRoute: typeof ApiShapesPromptsRoute
@@ -2965,20 +2966,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesCiRunsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/shapes/merge-trains': {
-      id: '/api/shapes/merge-trains'
-      path: '/api/shapes/merge-trains'
-      fullPath: '/api/shapes/merge-trains'
-      preLoaderRoute: typeof ApiShapesMergeTrainsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/merge-train-events': {
-      id: '/api/shapes/merge-train-events'
-      path: '/api/shapes/merge-train-events'
-      fullPath: '/api/shapes/merge-train-events'
-      preLoaderRoute: typeof ApiShapesMergeTrainEventsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/shapes/comments': {
       id: '/api/shapes/comments'
       path: '/api/shapes/comments'
@@ -3075,6 +3062,20 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/labels'
       fullPath: '/api/shapes/labels'
       preLoaderRoute: typeof ApiShapesLabelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/merge-train-events': {
+      id: '/api/shapes/merge-train-events'
+      path: '/api/shapes/merge-train-events'
+      fullPath: '/api/shapes/merge-train-events'
+      preLoaderRoute: typeof ApiShapesMergeTrainEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/merge-trains': {
+      id: '/api/shapes/merge-trains'
+      path: '/api/shapes/merge-trains'
+      fullPath: '/api/shapes/merge-trains'
+      preLoaderRoute: typeof ApiShapesMergeTrainsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/messages': {
@@ -4086,8 +4087,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesBoardsRoute: ApiShapesBoardsRoute,
   ApiShapesCiJobsRoute: ApiShapesCiJobsRoute,
   ApiShapesCiRunsRoute: ApiShapesCiRunsRoute,
-  ApiShapesMergeTrainsRoute: ApiShapesMergeTrainsRoute,
-  ApiShapesMergeTrainEventsRoute: ApiShapesMergeTrainEventsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesComposerDraftsRoute: ApiShapesComposerDraftsRoute,
   ApiShapesConversationsRoute: ApiShapesConversationsRoute,
@@ -4102,6 +4101,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesIssueSubscribersRoute: ApiShapesIssueSubscribersRoute,
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
+  ApiShapesMergeTrainEventsRoute: ApiShapesMergeTrainEventsRoute,
+  ApiShapesMergeTrainsRoute: ApiShapesMergeTrainsRoute,
   ApiShapesMessagesRoute: ApiShapesMessagesRoute,
   ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
   ApiShapesPromptsRoute: ApiShapesPromptsRoute,
@@ -4149,3 +4150,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.tsx'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

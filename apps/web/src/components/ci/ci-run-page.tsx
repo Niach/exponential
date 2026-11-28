@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import runViewFixture from "@exp/domain-contract/fixtures/ci-run-view.json"
 import { pullRequestCollection } from "@/lib/collections"
 import type { SurfaceActionEvent } from "@exponential_app/eui-react"
 import { CI_RUN_SPECIMEN, CI_RUN_TEST_IDS, ciDefaultJob } from "@exp/domain-contract/ci-run"
@@ -98,6 +99,28 @@ export function CiRunSpecimen() {
       requestedJob={job}
       log={job === CI_RUN_SPECIMEN.selected ? CI_RUN_SPECIMEN.log : null}
       now={CI_RUN_SPECIMEN.now}
+      onSelectJob={setJob}
+      onRerun={() => undefined}
+      onRerunAll={() => undefined}
+      onCancel={() => undefined}
+      onFix={() => undefined}
+      onOpenExternal={() => undefined}
+    />
+  )
+}
+
+/** DEV-ONLY `?dev=ci-run-queue` (#EXP-2214): a merge queue run, its batch
+ *  and What happened, over ci-run-view.json's queue case. */
+export function CiRunQueueSpecimen() {
+  const c = runViewFixture.ciRun.find((x) => x.name.startsWith(`#EXP-2214 a merge queue run:`))!
+  const model = c.model as unknown as CiRunModel
+  const [job, setJob] = useState<string>(c.selected as string)
+  return (
+    <CiRunView
+      model={model}
+      requestedJob={job}
+      log={job === c.selected ? (c.log as string) : null}
+      now={c.now as string}
       onSelectJob={setJob}
       onRerun={() => undefined}
       onRerunAll={() => undefined}

@@ -30,7 +30,7 @@ import {
   useIsMobile,
 } from "@exp/ui"
 import { CiPageSpecimen } from "@/components/ci/ci-page"
-import { CiRunSpecimen } from "@/components/ci/ci-run-page"
+import { CiRunQueueSpecimen, CiRunSpecimen } from "@/components/ci/ci-run-page"
 import { RunnerSettingsSpecimen } from "@/components/ci/runner-section"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { isProductionBuild } from "@/lib/production-build"
@@ -78,6 +78,10 @@ export const DEV_VIEWS = [
   `ci-run`,
   // #EXP-2172: THE CI page over ci-page.json's scenario.
   `ci`,
+  // #EXP-2214: the CI page's other tabs and a merge queue run.
+  `ci-prs`,
+  `ci-releases`,
+  `ci-run-queue`,
   `runner-settings`,
   `results-tab`,
   `needs-you`,
@@ -127,8 +131,14 @@ export function HomeDevView({ dev }: { dev: DevView }) {
         <PrChecksSpecimen />
       ) : dev === `ci` ? (
         <CiPageSpecimen />
+      ) : dev === `ci-prs` ? (
+        <CiPageSpecimen initialTab="prs" />
+      ) : dev === `ci-releases` ? (
+        <CiPageSpecimen initialTab="releases" />
       ) : dev === `ci-run` ? (
         <CiRunSpecimen />
+      ) : dev === `ci-run-queue` ? (
+        <CiRunQueueSpecimen />
       ) : dev === `runner-settings` ? (
         <RunnerSettingsSpecimen />
       ) : dev === `results-tab` ? (

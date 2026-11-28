@@ -230,24 +230,35 @@
             ]
            },
            {
-            "id": "ci-queue-now.train-91.open",
-            "component": "Button",
+            "id": "ci-queue-now.train-91.actions",
+            "component": "Stack",
             "props": {
-             "label": "Open run",
-             "icon": "external-link",
-             "variant": "outline",
-             "size": "sm"
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
             },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r91"
+            "children": [
+             {
+              "id": "ci-queue-now.train-91.open",
+              "component": "Button",
+              "props": {
+               "label": "Open run",
+               "icon": "external-link",
+               "variant": "outline",
+               "size": "sm"
+              },
+              "on": {
+               "press": {
+                "event": {
+                 "name": "ci-open-run",
+                 "context": {
+                  "run": "r91"
+                 }
+                }
                }
               }
              }
-            }
+            ]
            }
           ]
          }
@@ -1270,24 +1281,35 @@
             ]
            },
            {
-            "id": "ci-queue-now.train-91.open",
-            "component": "Button",
+            "id": "ci-queue-now.train-91.actions",
+            "component": "Stack",
             "props": {
-             "label": "Open run",
-             "icon": "external-link",
-             "variant": "outline",
-             "size": "sm"
+             "direction": "horizontal",
+             "gap": "sm",
+             "align": "center"
             },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r91"
+            "children": [
+             {
+              "id": "ci-queue-now.train-91.open",
+              "component": "Button",
+              "props": {
+               "label": "Open run",
+               "icon": "external-link",
+               "variant": "outline",
+               "size": "sm"
+              },
+              "on": {
+               "press": {
+                "event": {
+                 "name": "ci-open-run",
+                 "context": {
+                  "run": "r91"
+                 }
+                }
                }
               }
              }
-            }
+            ]
            }
           ]
          }
@@ -1458,12 +1480,6 @@
            "identifier": "#210",
            "title": "Session tree visibility rule",
            "subtitle": "Failed in test (linux) · 2 of 3 tries",
-           "meta": {
-            "@call": "formatRelativeTime",
-            "args": {
-             "value": "2026-11-27T08:59:00.000Z"
-            }
-           },
            "pressable": true
           },
           "slots": {
@@ -1810,12 +1826,6 @@
            "identifier": "#40",
            "title": "Dark splash",
            "subtitle": "Failed in build, ui tests +1 · 3 of 3 tries",
-           "meta": {
-            "@call": "formatRelativeTime",
-            "args": {
-             "value": "2026-11-26T19:50:00.000Z"
-            }
-           },
            "pressable": true
           },
           "slots": {
@@ -2088,8 +2098,7 @@
            "identifier": "#214",
            "title": "Reduce cold start below 400 ms",
            "subtitle": "engine · exp/APP-32 · gate #483",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -2129,70 +2138,6 @@
             ]
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.pr-214.run.r483",
-            "component": "Row",
-            "props": {
-             "title": "gate #483",
-             "meta": "3m 12s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-214.run.r483.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-running",
-               "tone": "info",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r483"
-               }
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-pr-row.pr-214.run.r481",
-            "component": "Row",
-            "props": {
-             "title": "gate #481",
-             "meta": "24s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-214.run.r481.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-skipped",
-               "tone": "neutral",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r481"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {
@@ -2211,8 +2156,7 @@
            "identifier": "#213",
            "title": "Log tail",
            "subtitle": "engine · exp/APP-33 · gate #482",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -2252,39 +2196,6 @@
             ]
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.pr-213.run.r482",
-            "component": "Row",
-            "props": {
-             "title": "gate #482",
-             "meta": "12m 40s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-213.run.r482.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-failed",
-               "tone": "danger",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r482"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {
@@ -2312,8 +2223,7 @@
           "props": {
            "title": "exp/spike",
            "subtitle": "engine · exp/spike · gate #479",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -2345,39 +2255,6 @@
             ]
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.branch.repo-engine.exp/spike.run.r479",
-            "component": "Row",
-            "props": {
-             "title": "gate #479",
-             "meta": "4m 30s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.branch.repo-engine.exp/spike.run.r479.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-passed",
-               "tone": "success",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r479"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {
@@ -2520,8 +2397,7 @@
            "title": "Reduce cold start below 400 ms",
            "subtitle": "engine · gate #483",
            "meta": "3m 12s",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -2534,70 +2410,6 @@
             }
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.pr-214.run.r483",
-            "component": "Row",
-            "props": {
-             "title": "gate #483",
-             "meta": "3m 12s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-214.run.r483.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-running",
-               "tone": "info",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r483"
-               }
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-pr-row.pr-214.run.r481",
-            "component": "Row",
-            "props": {
-             "title": "gate #481",
-             "meta": "24s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-214.run.r481.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-skipped",
-               "tone": "neutral",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r481"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {
@@ -2617,8 +2429,7 @@
            "title": "Log tail",
            "subtitle": "engine · gate #482",
            "meta": "12m 40s",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -2631,39 +2442,6 @@
             }
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.pr-213.run.r482",
-            "component": "Row",
-            "props": {
-             "title": "gate #482",
-             "meta": "12m 40s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-213.run.r482.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-failed",
-               "tone": "danger",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r482"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {
@@ -2692,8 +2470,7 @@
            "title": "exp/spike",
            "subtitle": "engine · gate #479",
            "meta": "4m 30s",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -2706,39 +2483,6 @@
             }
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.branch.repo-engine.exp/spike.run.r479",
-            "component": "Row",
-            "props": {
-             "title": "gate #479",
-             "meta": "4m 30s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.branch.repo-engine.exp/spike.run.r479.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-passed",
-               "tone": "success",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r479"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {
@@ -2898,8 +2642,7 @@
            "identifier": "#213",
            "title": "Log tail",
            "subtitle": "engine · exp/APP-33 · gate #482",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -2939,39 +2682,6 @@
             ]
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.pr-213.run.r482",
-            "component": "Row",
-            "props": {
-             "title": "gate #482",
-             "meta": "12m 40s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-213.run.r482.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-failed",
-               "tone": "danger",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r482"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {
@@ -4793,24 +4503,35 @@
               ]
              },
              {
-              "id": "ci-queue-now.train-91.open",
-              "component": "Button",
+              "id": "ci-queue-now.train-91.actions",
+              "component": "Stack",
               "props": {
-               "label": "Open run",
-               "icon": "external-link",
-               "variant": "outline",
-               "size": "sm"
+               "direction": "horizontal",
+               "gap": "sm",
+               "align": "center"
               },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r91"
+              "children": [
+               {
+                "id": "ci-queue-now.train-91.open",
+                "component": "Button",
+                "props": {
+                 "label": "Open run",
+                 "icon": "external-link",
+                 "variant": "outline",
+                 "size": "sm"
+                },
+                "on": {
+                 "press": {
+                  "event": {
+                   "name": "ci-open-run",
+                   "context": {
+                    "run": "r91"
+                   }
+                  }
                  }
                 }
                }
-              }
+              ]
              }
             ]
            }
@@ -5559,24 +5280,35 @@
               ]
              },
              {
-              "id": "ci-queue-now.train-91.open",
-              "component": "Button",
+              "id": "ci-queue-now.train-91.actions",
+              "component": "Stack",
               "props": {
-               "label": "Open run",
-               "icon": "external-link",
-               "variant": "outline",
-               "size": "sm"
+               "direction": "horizontal",
+               "gap": "sm",
+               "align": "center"
               },
-              "on": {
-               "press": {
-                "event": {
-                 "name": "ci-open-run",
-                 "context": {
-                  "run": "r91"
+              "children": [
+               {
+                "id": "ci-queue-now.train-91.open",
+                "component": "Button",
+                "props": {
+                 "label": "Open run",
+                 "icon": "external-link",
+                 "variant": "outline",
+                 "size": "sm"
+                },
+                "on": {
+                 "press": {
+                  "event": {
+                   "name": "ci-open-run",
+                   "context": {
+                    "run": "r91"
+                   }
+                  }
                  }
                 }
                }
-              }
+              ]
              }
             ]
            }
@@ -5747,12 +5479,6 @@
              "identifier": "#210",
              "title": "Session tree visibility rule",
              "subtitle": "Failed in test (linux) · 2 of 3 tries",
-             "meta": {
-              "@call": "formatRelativeTime",
-              "args": {
-               "value": "2026-11-27T08:59:00.000Z"
-              }
-             },
              "pressable": true
             },
             "slots": {
@@ -6121,8 +5847,7 @@
            "identifier": "#214",
            "title": "Reduce cold start below 400 ms",
            "subtitle": "engine · exp/APP-32 · gate #483",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -6162,70 +5887,6 @@
             ]
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.pr-214.run.r483",
-            "component": "Row",
-            "props": {
-             "title": "gate #483",
-             "meta": "3m 12s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-214.run.r483.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-running",
-               "tone": "info",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r483"
-               }
-              }
-             }
-            }
-           },
-           {
-            "id": "ci-pr-row.pr-214.run.r481",
-            "component": "Row",
-            "props": {
-             "title": "gate #481",
-             "meta": "24s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-214.run.r481.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-skipped",
-               "tone": "neutral",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r481"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {
@@ -6244,8 +5905,7 @@
            "identifier": "#213",
            "title": "Log tail",
            "subtitle": "engine · exp/APP-33 · gate #482",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -6285,39 +5945,6 @@
             ]
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.pr-213.run.r482",
-            "component": "Row",
-            "props": {
-             "title": "gate #482",
-             "meta": "12m 40s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.pr-213.run.r482.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-failed",
-               "tone": "danger",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r482"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {
@@ -6345,8 +5972,7 @@
           "props": {
            "title": "exp/spike",
            "subtitle": "engine · exp/spike · gate #479",
-           "pressable": true,
-           "open": false
+           "pressable": true
           },
           "slots": {
            "leading": {
@@ -6378,39 +6004,6 @@
             ]
            }
           },
-          "children": [
-           {
-            "id": "ci-pr-row.branch.repo-engine.exp/spike.run.r479",
-            "component": "Row",
-            "props": {
-             "title": "gate #479",
-             "meta": "4m 30s",
-             "density": "compact",
-             "pressable": true
-            },
-            "slots": {
-             "leading": {
-              "id": "ci-pr-row.branch.repo-engine.exp/spike.run.r479.glyph",
-              "component": "Icon",
-              "props": {
-               "name": "ci-passed",
-               "tone": "success",
-               "size": "sm"
-              }
-             }
-            },
-            "on": {
-             "press": {
-              "event": {
-               "name": "ci-open-run",
-               "context": {
-                "run": "r479"
-               }
-              }
-             }
-            }
-           }
-          ],
           "on": {
            "press": {
             "event": {

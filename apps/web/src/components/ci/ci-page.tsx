@@ -136,9 +136,9 @@ export function CiPageView({
 }
 
 /** DEV-ONLY `?dev=ci`: the page over ci-page.json's `scenario`, no server. */
-export function CiPageSpecimen() {
+export function CiPageSpecimen({ initialTab = `train` }: { initialTab?: CiTab } = {}) {
   const input = pageFixture.scenario as unknown as CiPageInput
-  const [tab, setTab] = useState<CiTab>(`train`)
+  const [tab, setTab] = useState<CiTab>(initialTab)
   const [filter, setFilter] = useState<CiRunFilter>(ALL_RUNS)
   const phone = useIsMobile()
   // The /ci route's wide chrome (#EXP-2169): the entity heading in the
