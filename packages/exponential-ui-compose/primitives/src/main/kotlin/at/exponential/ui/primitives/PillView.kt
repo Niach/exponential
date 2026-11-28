@@ -131,7 +131,7 @@ fun PillView(
             if (label.isNotEmpty()) {
                 BasicText(
                     label,
-                    style = style.resolvedTextStyle(ink),
+                    style = style.resolvedTextStyle(ink).inPrimitiveSans(),
                     maxLines = maxLines,
                     overflow = TextOverflow.Ellipsis,
                     modifier = if (shrinkLabel) Modifier.weight(1f, fill = false) else Modifier,

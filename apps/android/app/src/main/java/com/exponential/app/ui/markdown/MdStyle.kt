@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.ui.graphics.Color
+import com.exponential.app.ui.theme.ExpSans
 import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -79,7 +80,7 @@ object MdStyle {
      *  labels scale off it), independent of the prose body. */
     val mediaTextSize = 17.sp
 
-    val body = TextStyle(color = Text, fontSize = bodySize, lineHeight = lineHeight)
+    val body = TextStyle(fontFamily = ExpSans, color = Text, fontSize = bodySize, lineHeight = lineHeight)
 
     fun heading(level: Int): TextStyle {
         val size = when (level) {
@@ -89,7 +90,7 @@ object MdStyle {
             3 -> 16.sp
             else -> bodySize
         }
-        return TextStyle(color = Text, fontWeight = FontWeight.SemiBold, fontSize = size, lineHeight = size * 1.25f)
+        return TextStyle(fontFamily = ExpSans, color = Text, fontWeight = FontWeight.SemiBold, fontSize = size, lineHeight = size * 1.25f)
     }
 
     /** A CHAT body's heading (the transcript, the plan / question card;

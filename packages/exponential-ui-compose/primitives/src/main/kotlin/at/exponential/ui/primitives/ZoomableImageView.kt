@@ -954,7 +954,7 @@ fun ZoomPill(state: ZoomableImageState, appearance: ZoomPillAppearance, modifier
                 val look = looks.look(ZoomPart.Percent, ZoomPartState())
                 BasicText(
                     state.percent,
-                    style = TextStyle(color = c, fontSize = look.fontSize, lineHeight = look.lineHeight, fontWeight = look.fontWeight, textAlign = TextAlign.Center, fontFeatureSettings = "tnum"),
+                    style = TextStyle(color = c, fontSize = look.fontSize, lineHeight = look.lineHeight, fontWeight = look.fontWeight, textAlign = TextAlign.Center, fontFeatureSettings = "tnum").inPrimitiveSans(),
                     maxLines = 1,
                 )
             }
@@ -1059,7 +1059,7 @@ private fun ZoomMenu(state: ZoomableImageState, appearance: ZoomPillAppearance, 
                     Box(Modifier.size(check.width ?: 16.dp), contentAlignment = Alignment.Center) {
                         if (item.checked) appearance.icons.check(check.content.takeIf { it != Color.Unspecified } ?: look.content, check.width ?: 16.dp)
                     }
-                    BasicText(item.label, style = TextStyle(color = look.content, fontSize = look.fontSize, lineHeight = look.lineHeight, fontWeight = look.fontWeight, fontFeatureSettings = "tnum"), maxLines = 1)
+                    BasicText(item.label, style = TextStyle(color = look.content, fontSize = look.fontSize, lineHeight = look.lineHeight, fontWeight = look.fontWeight, fontFeatureSettings = "tnum").inPrimitiveSans(), maxLines = 1)
                 }
             }
         }

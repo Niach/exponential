@@ -21,3 +21,11 @@ val ExpMono = FontFamily(
 
 /** The family name genUI themes ask for. */
 const val EXP_MONO_FAMILY = "JetBrains Mono"
+
+/**
+ * #EXP-2215: every sans run is Inter, the face web and desktop draw (the
+ * token `Typography.FontFamily`): the genUI SDK bundles it once
+ * (`ExponentialUi.inter`, SIL OFL 1.1) and the app takes that copy, never
+ * Roboto, so a screen reads the same ×4.
+ */
+val ExpSans: FontFamily get() = at.exponential.ui.ExponentialUi.inter

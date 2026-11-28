@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.LocalIndication
+import com.exponential.app.ui.theme.ExpSans
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -144,6 +145,7 @@ fun CircleIconButton(
  * which read a size and a weight heavier than every other client.
  */
 val TopBarTitleStyle: TextStyle = TextStyle(
+    fontFamily = ExpSans,
     fontSize = DesignTokens.Typography.Size.Sm.sp,
     lineHeight = DesignTokens.Typography.LineHeight.Sm.sp,
     fontWeight = DesignTokens.Typography.Weight.Medium,

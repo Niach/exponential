@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
+import com.exponential.app.ui.theme.ExpSans
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -53,6 +54,7 @@ fun CountBadge(
         Text(
             label,
             style = TextStyle(
+                fontFamily = ExpSans,
                 fontSize = 10.sp,
                 lineHeight = 12.sp,
                 fontWeight = FontWeight.SemiBold,

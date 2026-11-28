@@ -225,7 +225,7 @@ private fun ChoiceTileView(
                 lineHeight = style.labelLineHeight,
                 fontWeight = FontWeight.Medium,
                 color = style.label,
-            ),
+            ).inPrimitiveSans(),
         )
         tile.description?.takeIf { it.isNotEmpty() }?.let { description ->
             BasicText(
@@ -235,7 +235,7 @@ private fun ChoiceTileView(
                     fontSize = style.descriptionSize,
                     lineHeight = style.descriptionLineHeight,
                     color = style.description,
-                ),
+                ).inPrimitiveSans(),
             )
         }
     }

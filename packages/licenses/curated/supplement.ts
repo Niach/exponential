@@ -73,7 +73,7 @@ export const FONTS: CuratedEntry[] = [
     title: `Inter`,
     clients: [`desktop`, `site`, `runner-desktop`, `web`, `ios`, `android`, `runner-web`, `runner-ios`, `runner-android`],
     body: [
-      `Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter), licensed under the SIL Open Font License 1.1. The desktop application and the desktop runner embed the TTFs in their binaries; the website self-hosts woff2 subsets. genUI's renderers (web, SwiftUI, Compose, gpui) bundle Inter Symbols, a subset of Inter to the keyboard symbols, as the fallback after every theme font.`,
+      `Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter), licensed under the SIL Open Font License 1.1. The desktop application and the desktop runner embed the TTFs in their binaries; the website self-hosts woff2 subsets. genUI's renderers (web, SwiftUI, Compose, gpui) bundle Inter Symbols, a subset of Inter to the keyboard symbols, as the fallback after every theme font. The iOS and Android apps draw their text in Inter: their genUI SDKs (SwiftUI, Compose) bundle its Regular, Medium, SemiBold and Bold faces.`,
     ],
     reproduce: [
       { label: `SIL Open Font License 1.1 — Inter`, path: `apps/desktop/assets/fonts/LICENSE.txt` },

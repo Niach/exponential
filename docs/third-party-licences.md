@@ -717,6 +717,27 @@ The curated supplement's `Inter` entry (`packages/licenses/curated/supplement.ts
 `desktop`, `site` and `runner-desktop`, so every client's `NOTICES.txt`
 reproduces Inter's OFL.
 
+## Inter on the phones: the apps' and genUI's sans face (#EXP-2215, 2026-11-28)
+
+The iOS and Android apps drew the system font (SF, Roboto) while web and
+desktop drew Inter, and genUI's `exponential` theme (`type.family.sans`:
+`Inter`) fell back to the system face on both phones. The two mobile genUI
+SDKs now bundle **Inter** 4.001 itself, unmodified: the four static faces the
+clients use (Regular, Medium, SemiBold, Bold), the very files of
+`apps/desktop/assets/fonts/` (about 410 KB a face). Each SDK resolves a theme's
+`Inter` to them when the host registered none and hands the same family to
+its app (`ExponentialUi.inter` / the Swift SDK's Inter API), so each phone app
+ships ONE copy, through the SDK. The OFL text is the one #3682 already put
+beside the Inter Symbols faces:
+
+| where | the faces | the licence |
+|---|---|---|
+| `ui-compose` (AAR; the Android app through it) | `src/main/res/font/inter_{regular,medium,semibold,bold}.ttf` | `ui-compose/OFL-Inter.txt` (`META-INF/OFL-Inter.txt` in the AAR) |
+| `ExponentialUI` (SwiftPM; the iOS app through it) | `Sources/ExponentialUI/Resources/Fonts/Inter-{Regular,Medium,SemiBold,Bold}.ttf` | `OFL-Inter.txt` in the same resource folder |
+
+The curated supplement's `Inter` entry already lists `ios` and `android`, so
+both apps' `NOTICES.txt` reproduce Inter's OFL unchanged.
+
 ## Semantic issue search: the embedding model and its runtime (#NEW-134, 2026-11-24)
 
 Semantic issue search computes one embedding per issue **inside the web

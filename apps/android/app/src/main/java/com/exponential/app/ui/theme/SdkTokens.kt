@@ -34,6 +34,8 @@ val AppPrimitiveTokens: PrimitiveTokens = PrimitiveTokens(
     radiusSm = DesignTokens.Radius.Sm,
     radiusMd = DesignTokens.Radius.Md,
     radiusLg = DesignTokens.Radius.Lg,
+    // #EXP-2215: the primitives' text in the app's Inter too.
+    sansFont = ExpSans,
 )
 
 /** The app's primitive tokens (one value; dark-only like the theme). */

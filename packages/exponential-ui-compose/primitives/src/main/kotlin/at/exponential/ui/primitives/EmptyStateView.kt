@@ -106,13 +106,13 @@ fun EmptyStateView(
             }
             BasicText(
                 title,
-                style = titleStyle.merge(TextStyle(color = titleColor, textAlign = TextAlign.Center)),
+                style = titleStyle.merge(TextStyle(color = titleColor, textAlign = TextAlign.Center)).inPrimitiveSans(),
             )
             if (!page) return@Column
             if (description != null) {
                 BasicText(
                     description,
-                    style = descriptionStyle.merge(TextStyle(color = descriptionColor, textAlign = TextAlign.Center)),
+                    style = descriptionStyle.merge(TextStyle(color = descriptionColor, textAlign = TextAlign.Center)).inPrimitiveSans(),
                     modifier = Modifier.padding(horizontal = descriptionPadding),
                 )
             }
@@ -133,7 +133,7 @@ fun EmptyStateView(
                     ) {
                         BasicText(
                             actionLabel,
-                            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = tokens.foreground),
+                            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = tokens.foreground).inPrimitiveSans(),
                         )
                     }
                 }

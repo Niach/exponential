@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import android.content.Intent
+import com.exponential.app.ui.theme.ExpSans
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -1109,6 +1110,7 @@ private fun OriginChip(isAgent: Boolean) {
 
 /** EXP-1676: the big title on a phone is web's `max-md:!text-xl` (20/28 semibold). */
 private val IssueTitleTextStyle = TextStyle(
+    fontFamily = ExpSans,
     fontWeight = FontWeight.SemiBold,
     fontSize = DesignTokens.Typography.Size.Xl.sp,
     lineHeight = 28.sp,

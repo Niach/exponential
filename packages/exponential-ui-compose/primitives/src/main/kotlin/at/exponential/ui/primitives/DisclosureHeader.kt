@@ -88,7 +88,7 @@ fun DisclosureHeader(
         }
         BasicText(
             title,
-            style = titleStyle.merge(TextStyle(color = titleColor)),
+            style = titleStyle.merge(TextStyle(color = titleColor)).inPrimitiveSans(),
             maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
@@ -96,7 +96,7 @@ fun DisclosureHeader(
         if (count != null) {
             BasicText(
                 count.toString(),
-                style = TextStyle(fontSize = 12.sp, color = LocalPrimitiveTokens.current.mutedForeground),
+                style = TextStyle(fontSize = 12.sp, color = LocalPrimitiveTokens.current.mutedForeground).inPrimitiveSans(),
             )
         }
         trailing?.invoke()

@@ -48,7 +48,7 @@ fun Kbd(label: String, modifier: Modifier = Modifier) {
     ) {
         BasicText(
             label,
-            style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, color = tokens.mutedForeground),
+            style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, color = tokens.mutedForeground).inPrimitiveSans(),
             maxLines = 1,
         )
     }

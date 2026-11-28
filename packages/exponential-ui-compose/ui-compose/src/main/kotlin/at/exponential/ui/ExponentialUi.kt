@@ -10,6 +10,8 @@ import at.exponential.ui.ffi.coreCatalogId
 import at.exponential.ui.ffi.defaultThemeId
 import at.exponential.ui.ffi.extensionErrors
 import at.exponential.ui.ffi.version
+import at.exponential.ui.measure.INTER_FAMILY
+import at.exponential.ui.measure.InterFont
 
 /** The SDK's entry points. */
 object ExponentialUi {
@@ -41,8 +43,15 @@ object ExponentialUi {
         synchronized(fonts) { fonts[family] = font }
     }
 
-    /** The family registered under `name`. */
-    fun fontFamily(name: String): FontFamily? = synchronized(fonts) { fonts[name] }
+    /** The family registered under `name`; `Inter` unregistered = the bundled faces (#EXP-2215). */
+    fun fontFamily(name: String): FontFamily? = synchronized(fonts) { fonts[name] } ?: if (name == INTER_FAMILY) InterFont.bundled else null
+
+    /**
+     * #EXP-2215: the bundled Inter (Regular, Medium, SemiBold, Bold; SIL OFL
+     * 1.1): the face genUI's `exponential` theme draws in, for the host's own
+     * typography too, so an app never bundles a second copy.
+     */
+    val inter: FontFamily get() = InterFont.bundled
 
     /** The built-in theme ids. */
     val builtinThemes: List<String> get() = builtinThemeIds()

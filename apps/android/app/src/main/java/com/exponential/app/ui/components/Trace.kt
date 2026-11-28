@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import com.exponential.app.ui.theme.ExpSans
 import at.exponential.ui.primitives.drawHighlightFills
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearEasing
@@ -134,7 +135,7 @@ fun traceIcon(concept: String): ImageVector = when (concept) {
 
 /** The line font at a size: sans, regular, the size's text + line height. */
 fun traceTextStyle(geometry: TraceGeometry): TextStyle = TextStyle(
-    fontFamily = FontFamily.Default,
+    fontFamily = ExpSans,
     fontWeight = FontWeight.Normal,
     fontSize = geometry.fontSize.sp,
     lineHeight = geometry.lineHeight.sp,
@@ -378,7 +379,7 @@ fun TraceBadge(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
         style = TextStyle(
-            fontFamily = FontFamily.Default,
+            fontFamily = ExpSans,
             fontWeight = FontWeight.Normal,
             fontSize = 10.sp,
             lineHeight = 16.sp,

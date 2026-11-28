@@ -167,7 +167,7 @@ fun AvatarView(
                                 trim = LineHeightStyle.Trim.Both,
                             ),
                         ),
-                    ),
+                    ).inPrimitiveSans(),
                 )
             }
         }

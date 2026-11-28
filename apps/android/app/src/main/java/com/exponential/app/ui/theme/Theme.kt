@@ -70,26 +70,31 @@ private val ZincDarkColors = darkColorScheme(
     scrim = Color(0xFF000000),
 )
 
+// #EXP-2215: Inter (ExpSans) on web's scale: every slot sits on the shared
+// token pairs (design-tokens `type`, Tailwind's text-xs…2xl) with web's
+// normal tracking (letterSpacing 0, never Material 3's 0.1–0.5 sp); the
+// display and large headline slots, which web has no pair for, keep
+// Material's sizes at that tracking.
 private val ExpoTypography = Typography(
-    displayLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal, fontSize = 57.sp, lineHeight = 64.sp, letterSpacing = (-0.25).sp),
-    displayMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal, fontSize = 45.sp, lineHeight = 52.sp),
-    displaySmall = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal, fontSize = 36.sp, lineHeight = 44.sp),
+    displayLarge = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Normal, fontSize = 57.sp, lineHeight = 64.sp, letterSpacing = 0.sp),
+    displayMedium = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Normal, fontSize = 45.sp, lineHeight = 52.sp, letterSpacing = 0.sp),
+    displaySmall = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Normal, fontSize = 36.sp, lineHeight = 44.sp, letterSpacing = 0.sp),
 
-    headlineLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold, fontSize = 32.sp, lineHeight = 40.sp),
-    headlineMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 36.sp),
-    headlineSmall = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 32.sp),
+    headlineLarge = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.SemiBold, fontSize = 32.sp, lineHeight = 40.sp, letterSpacing = 0.sp),
+    headlineMedium = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 36.sp, letterSpacing = 0.sp),
+    headlineSmall = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.SemiBold, fontSize = DesignTokens.Typography.Size.Xl2.sp, lineHeight = DesignTokens.Typography.LineHeight.Xl2.sp, letterSpacing = 0.sp),
 
-    titleLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
-    titleMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.15.sp),
-    titleSmall = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.1.sp),
+    titleLarge = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.SemiBold, fontSize = DesignTokens.Typography.Size.Xl.sp, lineHeight = DesignTokens.Typography.LineHeight.Xl.sp, letterSpacing = 0.sp),
+    titleMedium = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Medium, fontSize = DesignTokens.Typography.Size.Base.sp, lineHeight = DesignTokens.Typography.LineHeight.Base.sp, letterSpacing = 0.sp),
+    titleSmall = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Medium, fontSize = DesignTokens.Typography.Size.Sm.sp, lineHeight = DesignTokens.Typography.LineHeight.Sm.sp, letterSpacing = 0.sp),
 
-    bodyLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.5.sp),
-    bodyMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.25.sp),
-    bodySmall = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp),
+    bodyLarge = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Normal, fontSize = DesignTokens.Typography.Size.Base.sp, lineHeight = DesignTokens.Typography.LineHeight.Base.sp, letterSpacing = 0.sp),
+    bodyMedium = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Normal, fontSize = DesignTokens.Typography.Size.Sm.sp, lineHeight = DesignTokens.Typography.LineHeight.Sm.sp, letterSpacing = 0.sp),
+    bodySmall = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Normal, fontSize = DesignTokens.Typography.Size.Xs.sp, lineHeight = DesignTokens.Typography.LineHeight.Xs.sp, letterSpacing = 0.sp),
 
-    labelLarge = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.1.sp),
-    labelMedium = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.5.sp),
-    labelSmall = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 0.5.sp),
+    labelLarge = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Medium, fontSize = DesignTokens.Typography.Size.Sm.sp, lineHeight = DesignTokens.Typography.LineHeight.Sm.sp, letterSpacing = 0.sp),
+    labelMedium = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Medium, fontSize = DesignTokens.Typography.Size.Xs.sp, lineHeight = DesignTokens.Typography.LineHeight.Xs.sp, letterSpacing = 0.sp),
+    labelSmall = TextStyle(fontFamily = ExpSans, fontWeight = FontWeight.Medium, fontSize = DesignTokens.Typography.Size.Xs.sp, lineHeight = DesignTokens.Typography.LineHeight.Xs.sp, letterSpacing = 0.sp),
 )
 
 // Matches the web's `rounded-*` radii so dialogs/sheets/cards/chips feel

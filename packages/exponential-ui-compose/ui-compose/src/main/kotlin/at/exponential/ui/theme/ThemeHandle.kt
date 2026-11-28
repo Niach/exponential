@@ -178,6 +178,8 @@ class ThemeHandle(val theme: Theme) {
             radiusLg = radius("lg").dp,
             sansFamily = sansFamily,
             monoFamily = monoFamily,
+            // #EXP-2215: the face too (the bundled Inter for `exponential`).
+            sansFont = sansFamily?.let { at.exponential.ui.ExponentialUi.fontFamily(it) },
         )
     }
 }

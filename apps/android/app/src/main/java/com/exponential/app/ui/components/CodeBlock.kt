@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
+import com.exponential.app.ui.theme.ExpSans
 import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -149,7 +150,7 @@ fun CodeBlock(
                 Text(
                     title,
                     style = TextStyle(
-                        fontFamily = FontFamily.Default,
+                        fontFamily = ExpSans,
                         fontWeight = FontWeight.Medium,
                         fontSize = spec.TITLE_SIZE.sp,
                         lineHeight = 16.sp,

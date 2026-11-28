@@ -212,8 +212,9 @@ val benchScenarios = tasks.register<BenchScenarios>("exponentialUiBenchScenarios
 }
 
 /**
- * The bundled `Inter Symbols` faces (`src/main/res/font/inter_symbols_*.ttf`,
- * a subset of Inter, SIL OFL 1.1) ship their licence: `OFL-Inter.txt` as the
+ * The bundled Inter faces (`src/main/res/font/inter_*.ttf`, #EXP-2215) and
+ * `Inter Symbols` faces (`inter_symbols_*.ttf`, a subset of Inter), SIL OFL
+ * 1.1, ship their licence: `OFL-Inter.txt` as the
  * Java resource `META-INF/OFL-Inter.txt` of the AAR's classes.jar.
  */
 abstract class LicenceResources : DefaultTask() {
@@ -297,7 +298,7 @@ publishing {
                     license {
                         name.set("OFL-1.1")
                         url.set("https://openfontlicense.org")
-                        comments.set("The bundled Inter Symbols faces (res/font/inter_symbols_*.ttf, a subset of Inter); META-INF/OFL-Inter.txt")
+                        comments.set("The bundled Inter faces (res/font/inter_*.ttf) and Inter Symbols faces (res/font/inter_symbols_*.ttf, a subset of Inter); META-INF/OFL-Inter.txt")
                     }
                 }
             }

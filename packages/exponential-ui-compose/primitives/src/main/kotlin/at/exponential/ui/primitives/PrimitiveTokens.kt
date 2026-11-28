@@ -3,8 +3,11 @@ package at.exponential.ui.primitives
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -43,6 +46,12 @@ data class PrimitiveTokens(
     /** The sans and mono families by NAME (null = the system font). */
     val sansFamily: String? = null,
     val monoFamily: String? = null,
+    /**
+     * #EXP-2215: the sans face itself, for the primitives' text (null = the
+     * system font). The painter fills it from the theme's `sans` (the
+     * bundled Inter for `exponential`); the app passes its own (Inter).
+     */
+    val sansFont: FontFamily? = null,
 ) {
     companion object {
         private val GRAY = Color(0.5f, 0.5f, 0.5f)
@@ -60,6 +69,11 @@ val LocalPrimitiveTokens = staticCompositionLocalOf { PrimitiveTokens.SYSTEM }
 fun ProvidePrimitiveTokens(tokens: PrimitiveTokens, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalPrimitiveTokens provides tokens, content = content)
 }
+
+/** #EXP-2215: [this] in the tokens' sans face, unless it names a family. */
+@Composable
+@ReadOnlyComposable
+fun TextStyle.inPrimitiveSans(): TextStyle = if (fontFamily == null) LocalPrimitiveTokens.current.sansFont?.let { copy(fontFamily = it) } ?: this else this
 
 /** The semantic tone a primitive may be tinted with. */
 enum class PrimitiveTone(val wire: String) {

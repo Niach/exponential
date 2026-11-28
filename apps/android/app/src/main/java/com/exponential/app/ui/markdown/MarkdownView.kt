@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.foundation.clickable
+import com.exponential.app.ui.theme.ExpSans
 import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -237,7 +238,7 @@ private fun AttachmentBlock(
                 Icon(ExpIcons.uiFile, contentDescription = null, tint = look.colors.muted, modifier = Modifier.size(16.dp))
                 Text(
                     a.name,
-                    style = TextStyle(color = look.colors.link, fontSize = look.styles.body.size.sp),
+                    style = TextStyle(fontFamily = ExpSans, color = look.colors.link, fontSize = look.styles.body.size.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
