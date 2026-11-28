@@ -17,7 +17,7 @@ export CARGO_TARGET_DIR=$PWD/target          # keep it out of the desktop worksp
 cargo build --release --bins
 
 # 1. shots: the gpui reference first (it writes sizes.json), then zgui at the same sizes
-cp gpui/zgui_ref.rs ../crates/eui-shot/examples/          # run-only copy, never commit it there
+mkdir -p ../crates/eui-shot/examples && cp gpui/zgui_ref.rs ../crates/eui-shot/examples/   # run-only copy, never commit it there
 (cd .. && cargo build --release -p eui-shot --example zgui_ref)
 ../target/release/examples/zgui_ref shots /tmp/shots-gpui # or $CARGO_TARGET_DIR of the desktop workspace
 target/release/zshot all /tmp/shots-zgui /tmp/shots-gpui/sizes.json

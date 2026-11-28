@@ -152,3 +152,72 @@ API breaks: none hit (one pinned rev throughout). Friction / missing features / 
 Overall (Linux lane): **no blocker in zgui behind eui-core**, but **no-go for the gate as of today**: criterion 1 needs the
 remaining painter port (Markdown, Text runs, Input/Select chrome) and criterion 4's scroll regression needs an element-pool
 answer (ours or upstream). Note: the interleaved series ran while the machine sat at load 13–190 (other sessions' builds).
+
+## macOS half (MacBook, Apple M4 Pro, 14 cores, macOS 27.2, Metal; load ~5–11 from other sessions; 2026-11-28)
+
+Same commands (README), same pinned rev; zgui built and ran on macOS unchanged (winit + wgpu/Metal, `Harness` offscreen
+readback) — note that zgui's own CI runs only `ubuntu-24.04`, so macOS is untested upstream. Raw: `runs/macos-m4pro.jsonl`,
+table: `shots/macos/table.md`, side-by-sides (gpui | zgui | diff): `shots/macos/*.side.webp`.
+
+### 1. Shots, macOS (same threshold: ≤ 1.0 % pixels with any channel Δ > 8)
+
+| component | Linux % | macOS % | macOS pass |
+|---|---|---|---|
+| badge | 0.87 | 0.82 | yes |
+| button | 0.96 | 1.04 | no |
+| card | 0.67 | 0.97 | yes |
+| checkbox | 0.73 | 0.86 | yes |
+| grid | 0.66 | 1.05 | no |
+| heading | 0.71 | 0.88 | yes |
+| icon | 0.54 | 0.50 | yes |
+| list | 0.71 | 0.86 | yes |
+| switch | 0.86 | 0.99 | yes |
+| textarea | 0.74 | 0.82 | yes |
+| progress | 1.05 | 1.04 | no |
+| row | 1.19 | 1.42 | no |
+| stack | 1.30 | 1.39 | no |
+| tabs | 2.18 | 2.33 | no |
+| input | 2.42 | 2.49 | no |
+| markdown | 2.81 | 2.87 | no |
+| text | 3.68 | 3.92 | no |
+| select | 4.39 | 4.55 | no |
+| code-block | 7.99 | 8.39 | no |
+| dialog | n/a | n/a (66.9: gpui headless paints no overlay layer) | — |
+
+**macOS: 8 / 19 pass.** Core Text (gpui) vs swash/Vello (zgui) puts the AA floor at 0.8–1.0 %, so grid and button tip
+over the gate on AA alone. Caveat found while reviewing the side-by-sides (both platforms): a pixel-% gate under-reports
+structural differences on sparse specimens. `button` "passes" on Linux but its `fab` specimen paints `+ New` clipped
+where gpui paints an icon-only disc, `fab, size lg` paints a small `Assis…` row instead of the 40 px brand disc, and
+`icon-xs` glyphs are larger. A real gate needs the per-part frame dump (conformance-cases) beside the pixel step.
+
+### 4. Harness metrics, macOS (medians of 5, ranges)
+
+| metric | eui-gpui | eui-zgui |
+|---|---|---|
+| cold start → first frame, exec → frame done (250 surface) | 126 ms [122–147] | **60 ms** [57–523, first run = dyld/Gatekeeper] |
+| first frame, in process | 119 ms | **54 ms** |
+| one-prop delta, mean / p95 | 6.94 / 7.52 ms | **2.51 / 2.79 ms** |
+| 10k fixed rows, 100 viewport jumps, mean / p95 / max | **3.37 / 3.73 / 3.92 ms** | 4.96 / 5.51 / 6.16 ms |
+| 10k variable rows (1–8 lines), jumps, mean / p95 / max | 2.09 / 2.40 / 2.70 ms | **1.93 / 2.22 / 2.37 ms** |
+| 10k list first frame (fixed / variable) | 18.1 / 22.2 ms | **15.7 / 15.7 ms** |
+| release binary (unstripped) | 81 MB (example, test-support) | **35 MB** |
+| two surfaces test | — | passes (`two_surfaces`, 3.4 s) |
+
+Not taken on macOS: RSS (the benches read `/proc`, 0 on macOS) and idle CPU in a real window (the MacBook is a person's
+live screen; Linux numbers stand).
+
+## Go / no-go (both platforms)
+
+| # | criterion | verdict | numbers |
+|---|---|---|---|
+| 1 | ~20 component shots match, Linux + macOS | **NO-GO** | 10/19 Linux, 8/19 macOS under ≤ 1 %; text-stack AA alone costs 0.5–1 %; Markdown, Text runs, Input/Select chrome, CodeBlock weights, Button fab unported or divergent; Dialog unmeasurable (gpui headless) |
+| 2 | variable-height list, 10k, smooth | **GO** | p95 3.25 ms Linux / 2.22 ms macOS (gpui 2.75 / 2.40) |
+| 3 | multiple documents per process | **GO** | `tests/two_surfaces.rs` byte-identical independence, both platforms |
+| 4 | measured vs eui-gpui | **MIXED** | delta 2.7× (Linux) / 2.8× (macOS) faster, idle CPU 2× lower, 25 vs 113 threads, binary ~2.3× smaller, macOS cold start 2× faster; fixed-row jump scroll 1.5× (macOS) – 1.8× (Linux) slower, RSS +31 MB vs +7 MB while scrolling |
+| 5 | maintainer / API / upstream | **RISK** | one lead (zortax: 209 of 263 commits in the last 30 days; Janrupf's commits authored 2026-10-28, landed 2026-11-19); Linux-only upstream CI; no API break at the pin; 3 upstream asks (text seam into a scene, cheaper element creation / keyed reuse, variable-height `VirtualList`) |
+
+**Overall: NO-GO for switching now** (criterion 1 fails on both platforms, criterion 5 is a bus-factor-one dependency
+without macOS CI). zgui itself hit no blocker behind eui-core and wins on delta, idle CPU, threads, size and macOS start,
+so the trial is worth reopening only if (a) upstream lands the text-into-scene seam (a direct painter would drop the
+element-creation cost behind the fixed-row regression) and (b) a second maintainer or macOS CI appears. The perf wins it
+shows (fine-grained repaint, fewer threads) are the targets for #PERF-15 / #PERF-17 on gpui.
