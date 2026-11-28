@@ -117,6 +117,11 @@ enum RefreshState {
         refresh_rate: Duration,
         event_loop_token: RegistrationToken,
     },
+    /// Exponential patch (#PERF-17): visible, but the timer stopped after an
+    /// idle tick; the window's frame waker restarts it.
+    Paused {
+        refresh_rate: Duration,
+    },
 }
 
 #[derive(Debug)]
@@ -1734,6 +1739,21 @@ impl X11Client {
         .log_err();
         xcb_flush(&state.xcb_connection);
 
+        // Exponential patch (#PERF-17): the frame waker restarts a paused
+        // refresh timer on the next loop turn (it may run inside a client
+        // borrow).
+        window.0.frames.set_resume(Rc::new({
+            let this = X11ClientStatePtr(Rc::downgrade(&self.0));
+            let loop_handle = state.loop_handle.clone();
+            move || {
+                let this = this.clone();
+                loop_handle.insert_idle(move |_| {
+                    if let Some(client) = this.get_client() {
+                        client.0.borrow_mut().resume_refresh_loop(x_window);
+                    }
+                });
+            }
+        }));
         let window_ref = WindowRef {
             window: window.0.clone(),
             refresh_state: None,
@@ -1968,8 +1988,12 @@ impl X11ClientState {
         match (is_visible, window_ref.refresh_state.take()) {
             (false, refresh_state @ Some(RefreshState::Hidden { .. }))
             | (false, refresh_state @ None)
-            | (true, refresh_state @ Some(RefreshState::PeriodicRefresh { .. })) => {
+            | (true, refresh_state @ Some(RefreshState::PeriodicRefresh { .. }))
+            | (true, refresh_state @ Some(RefreshState::Paused { .. })) => {
                 window_ref.refresh_state = refresh_state;
+            }
+            (false, Some(RefreshState::Paused { refresh_rate })) => {
+                window_ref.refresh_state = Some(RefreshState::Hidden { refresh_rate });
             }
             (
                 false,
@@ -2040,12 +2064,32 @@ impl X11ClientState {
         }
     }
 
+    /// Exponential patch (#PERF-17): restarts a timer that paused idle.
+    fn resume_refresh_loop(&mut self, x_window: xproto::Window) {
+        let Some(RefreshState::Paused { refresh_rate }) =
+            self.windows.get(&x_window).and_then(|w| w.refresh_state.as_ref())
+        else {
+            return;
+        };
+        let refresh_rate = *refresh_rate;
+        let event_loop_token = self.start_refresh_loop(x_window, refresh_rate);
+        if let Some(window_ref) = self.windows.get_mut(&x_window) {
+            window_ref.refresh_state = Some(RefreshState::PeriodicRefresh {
+                refresh_rate,
+                event_loop_token,
+            });
+        }
+    }
+
     #[must_use]
     fn start_refresh_loop(
         &self,
         x_window: xproto::Window,
         refresh_rate: Duration,
     ) -> RegistrationToken {
+        if let Some(window_ref) = self.windows.get(&x_window) {
+            window_ref.frames.set_paused(false);
+        }
         self.loop_handle
             .insert_source(calloop::timer::Timer::immediate(), {
                 let this = self.this.clone();
@@ -2053,22 +2097,43 @@ impl X11ClientState {
                     let Some(client) = this.get_client() else {
                         return calloop::timer::TimeoutAction::Drop;
                     };
-                    let xcb_connection = {
+                    let (xcb_connection, idle) = {
                         let mut state = client.0.borrow_mut();
                         let xcb_connection = state.xcb_connection.clone();
+                        let mut idle = false;
                         if let Some(window) = state.windows.get_mut(&x_window) {
                             let window = window.window.clone();
                             drop(state);
+                            window.frames.begin_tick();
                             window.refresh(RequestFrameOptions {
                                 require_presentation: false,
                                 force_render: false,
                                 signal_at: PlatformFrameSignal::capture(|| instant),
                                 signal_source: FrameRequestSource::LocalSchedule,
                             });
+                            // Exponential patch (#PERF-17): nothing drawn,
+                            // presented or asked for: stop until GPUI wakes
+                            // the window's frame source.
+                            if window.frames.tick_was_idle() {
+                                let mut state = client.0.borrow_mut();
+                                if let Some(window_ref) = state.windows.get_mut(&x_window)
+                                    && let Some(RefreshState::PeriodicRefresh {
+                                        refresh_rate, ..
+                                    }) = window_ref.refresh_state
+                                {
+                                    window_ref.refresh_state =
+                                        Some(RefreshState::Paused { refresh_rate });
+                                    window.frames.set_paused(true);
+                                    idle = true;
+                                }
+                            }
                         }
-                        xcb_connection
+                        (xcb_connection, idle)
                     };
                     client.process_x11_events(&xcb_connection).log_err();
+                    if idle {
+                        return calloop::timer::TimeoutAction::Drop;
+                    }
 
                     // Take into account that some frames have been skipped
                     let now = Instant::now();

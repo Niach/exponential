@@ -143,6 +143,42 @@ impl WgpuContext {
         Self::new_with_options(instance, surface, config, compositor_gpu, false)
     }
 
+    /// Exponential patch (#PERF-17): adapter selection on a Vulkan-only
+    /// instance, for the first window. `WgpuContext::instance` also starts
+    /// OpenGL, whose EGL initialisation costs ~100-150 ms of every cold start
+    /// (mint, X11, NVIDIA + Intel). This tries only the Vulkan adapters that
+    /// sort ahead of every adapter OpenGL can expose ([`outranks_opengl`]),
+    /// in the same order `new` would; it fails when none of them works, and the
+    /// caller then runs `new` on a Vulkan + GL instance, as upstream always did.
+    /// So the adapter picked is the one `new` would pick.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn new_vulkan_first(
+        instance: wgpu::Instance,
+        surface: &wgpu::Surface<'_>,
+        config: &WgpuSurfaceConfig,
+        compositor_gpu: Option<CompositorGpuHint>,
+    ) -> anyhow::Result<Self> {
+        let device_id_filter = Self::device_id_filter();
+        let (adapter, device, queue, dual_source_blending, color_texture_format) =
+            gpui::block_on(Self::select_adapter_and_device(
+                &instance,
+                device_id_filter,
+                surface,
+                config,
+                compositor_gpu.as_ref(),
+                false,
+                true,
+            ))?;
+        Ok(Self::from_native_adapter_and_device(
+            instance,
+            adapter,
+            device,
+            queue,
+            dual_source_blending,
+            color_texture_format,
+        ))
+    }
+
     #[cfg(not(target_family = "wasm"))]
     pub fn new_rejecting_software(
         instance: wgpu::Instance,
@@ -173,6 +209,7 @@ impl WgpuContext {
                 config,
                 compositor_gpu.as_ref(),
                 reject_software,
+                false,
             ))?;
 
         Ok(Self::from_native_adapter_and_device(
@@ -483,8 +520,18 @@ impl WgpuContext {
 
     #[cfg(not(target_family = "wasm"))]
     pub fn instance(display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>) -> wgpu::Instance {
+        Self::instance_with_backends(display, wgpu::Backends::VULKAN | wgpu::Backends::GL)
+    }
+
+    /// Exponential patch (#PERF-17): `instance` for a chosen backend set
+    /// (`new_vulkan_first` takes Vulkan alone).
+    #[cfg(not(target_family = "wasm"))]
+    pub fn instance_with_backends(
+        display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
+        backends: wgpu::Backends,
+    ) -> wgpu::Instance {
         wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
+            backends,
             flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions::default(),
             memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
@@ -520,6 +567,9 @@ impl WgpuContext {
         config: &WgpuSurfaceConfig,
         compositor_gpu: Option<&CompositorGpuHint>,
         reject_software: bool,
+        // Exponential patch (#PERF-17): try only the adapters that outrank
+        // every OpenGL adapter (`new_vulkan_first`).
+        outranking_gl_only: bool,
     ) -> anyhow::Result<(
         wgpu::Adapter,
         wgpu::Device,
@@ -552,12 +602,16 @@ impl WgpuContext {
         {
             let lavapipe = adapters.remove(position);
             let info = lavapipe.get_info();
-            log::warn!(
-                "{} ({}) paints X11 windows black (Mesa before 24, #EXP-2211); \
-                 trying the other adapters first",
-                info.name,
-                info.driver_info,
-            );
+            // Exponential patch (#PERF-17): the Vulkan-first pass never tries
+            // it; the Vulkan + GL pass warns.
+            if !outranking_gl_only {
+                log::warn!(
+                    "{} ({}) paints X11 windows black (Mesa before 24, #EXP-2211); \
+                     trying the other adapters first",
+                    info.name,
+                    info.driver_info,
+                );
+            }
             adapters.push(lavapipe);
         }
 
@@ -578,6 +632,11 @@ impl WgpuContext {
         // Test each adapter by creating a device and configuring the surface
         for adapter in adapters {
             let info = adapter.get_info();
+
+            // Exponential patch (#PERF-17): sorted, so every later one is worse.
+            if outranking_gl_only && !outranks_opengl(&info, device_id_filter, compositor_gpu) {
+                break;
+            }
 
             if reject_software && info.device_type == wgpu::DeviceType::Cpu {
                 log::info!(
@@ -633,44 +692,55 @@ impl WgpuContext {
         compositor_gpu: Option<&CompositorGpuHint>,
     ) {
         adapters.sort_by_key(|adapter| {
-            let info = adapter.get_info();
-            // Backends like OpenGL report device=0 for all adapters, so
-            // device-based matching is only meaningful when non-zero.
-            let device_known = info.device != 0;
-            let user_override: u8 = match device_id_filter {
-                Some(id) if device_known && info.device == id => 0,
-                _ => 1,
-            };
-            let compositor_match: u8 = match compositor_gpu {
-                Some(hint)
-                    if device_known
-                        && info.vendor == hint.vendor_id
-                        && info.device == hint.device_id =>
-                {
-                    0
-                }
-                _ => 1,
-            };
-            let type_priority: u8 = match info.device_type {
-                wgpu::DeviceType::DiscreteGpu => 0,
-                wgpu::DeviceType::IntegratedGpu => 1,
-                wgpu::DeviceType::Other => 2,
-                wgpu::DeviceType::VirtualGpu => 3,
-                wgpu::DeviceType::Cpu => 4,
-            };
-            let backend_priority: u8 = match info.backend {
-                wgpu::Backend::Vulkan | wgpu::Backend::Metal | wgpu::Backend::Dx12 => 0,
-                _ => 1,
-            };
-
-            (
-                user_override,
-                compositor_match,
-                type_priority,
-                backend_priority,
-            )
+            Self::adapter_rank(&adapter.get_info(), device_id_filter, compositor_gpu)
         });
     }
+
+    /// The key `sort_adapters` orders by (lower first). Exponential patch
+    /// (#PERF-17): factored out of `sort_adapters` for `outranks_opengl`.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn adapter_rank(
+        info: &wgpu::AdapterInfo,
+        device_id_filter: Option<u32>,
+        compositor_gpu: Option<&CompositorGpuHint>,
+    ) -> (u8, u8, u8, u8) {
+        // Backends like OpenGL report device=0 for all adapters, so
+        // device-based matching is only meaningful when non-zero.
+        let device_known = info.device != 0;
+        let user_override: u8 = match device_id_filter {
+            Some(id) if device_known && info.device == id => 0,
+            _ => 1,
+        };
+        let compositor_match: u8 = match compositor_gpu {
+            Some(hint)
+                if device_known
+                    && info.vendor == hint.vendor_id
+                    && info.device == hint.device_id =>
+            {
+                0
+            }
+            _ => 1,
+        };
+        let type_priority: u8 = match info.device_type {
+            wgpu::DeviceType::DiscreteGpu => 0,
+            wgpu::DeviceType::IntegratedGpu => 1,
+            wgpu::DeviceType::Other => 2,
+            wgpu::DeviceType::VirtualGpu => 3,
+            wgpu::DeviceType::Cpu => 4,
+        };
+        let backend_priority: u8 = match info.backend {
+            wgpu::Backend::Vulkan | wgpu::Backend::Metal | wgpu::Backend::Dx12 => 0,
+            _ => 1,
+        };
+
+        (
+            user_override,
+            compositor_match,
+            type_priority,
+            backend_priority,
+        )
+    }
+
 
     /// Try to use an adapter with a surface by creating a device and testing configuration.
     /// Returns the device and queue if successful, allowing them to be reused.
@@ -780,6 +850,23 @@ impl WgpuContext {
 /// Exponential patch (#EXP-2211): lavapipe from a Mesa before 24.0, whose X11
 /// software present leaves a 32-bit-visual window black (23.2.1 does, 24.0.5
 /// does not). `apps/desktop/crates/eui-gpui/tests/software_adapters.rs`.
+/// Exponential patch (#PERF-17): whether `info` sorts ahead of any adapter
+/// wgpu's OpenGL backend can expose, i.e. whether `WgpuContext::new_vulkan_first`
+/// may take it. A GL adapter always reports device 0 (so it never matches
+/// `ZED_DEVICE_ID` or the compositor GPU) and is `IntegratedGpu`, `Other` or
+/// `Cpu` (wgpu-hal's gles never infers Discrete), so its best rank is
+/// `(1, 1, 1, 1)`. `sort_adapters` is a stable sort over an enumeration that
+/// lists Vulkan first, so the adapters ranked below that lead the Vulkan + GL
+/// order too, in the same order.
+#[cfg(not(target_family = "wasm"))]
+pub fn outranks_opengl(
+    info: &wgpu::AdapterInfo,
+    device_id_filter: Option<u32>,
+    compositor_gpu: Option<&CompositorGpuHint>,
+) -> bool {
+    WgpuContext::adapter_rank(info, device_id_filter, compositor_gpu) < (1, 1, 1, 1)
+}
+
 #[cfg(not(target_family = "wasm"))]
 pub fn is_black_presenting_lavapipe(info: &wgpu::AdapterInfo) -> bool {
     info.backend == wgpu::Backend::Vulkan

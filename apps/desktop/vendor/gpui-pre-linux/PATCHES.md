@@ -181,10 +181,31 @@ Each is marked `Exponential patch (#EDE-227)` in the source.
 - **`src/linux.rs`, `src/gpui_linux.rs`:** declare the module and export
   `hand_activation_token` (`ui::session_bus` calls it).
 
+## X11 refresh timer pauses while idle (#PERF-17)
+
+Marked `Exponential patch (#PERF-17)` in the source. Upstream's X11 client
+ran a calloop timer per visible window at the display's refresh rate and
+asked gpui for a frame on every tick, idle or not: a still eUI surface used
+1.0-1.3 % of a core (mint, X11). macOS already pauses its display link
+(`MetalFrames`); X11 now does the same through gpui's `frame_waker` hook.
+
+- **`src/linux/x11/window.rs`:** `FrameDemand` (on `X11WindowStatePtr`)
+  records per tick whether gpui drew/presented (`draw`) or asked for another
+  frame (`frame_waker`, `schedule_frame`). `PlatformWindow::frame_waker`
+  and `schedule_frame` wake it; a wake while paused restarts the timer once.
+- **`src/linux/x11/client.rs`:** `RefreshState::Paused`. A tick that left
+  no demand stops its timer (`TimeoutAction::Drop`); the wake restarts it
+  on the next loop turn (`insert_idle` → `resume_refresh_loop`, since gpui
+  may wake inside a client borrow). Hiding a paused window turns it
+  `Hidden`, so showing it again starts the timer as before. Expose events
+  still present directly.
+- **Test:** `frame_demand_tests` (`window.rs`), in the gate's vendored patch
+  test step.
+
 ## Packaging
 
 `Cargo.toml` stays the crates.io-normalised manifest. Dropped from the
 published crate: `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`,
-`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape pointer_left clipboard handed_activation`
+`.cargo-ok`. Tests: `cargo test -p gpui-pre-linux --lib -- uri_list input_shape pointer_left clipboard handed_activation frame_demand`
 from `apps/desktop` (the input shape and clipboard round-trip tests start a
 private Xvfb and are skipped without one).

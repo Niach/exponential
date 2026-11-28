@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-28-lighter-linux-desktop",
+    date: "2026-11-28",
+    title: "Lighter desktop app on Linux",
+    summary: "On Linux the desktop app now sits at almost no CPU while nothing changes, and its first window opens faster.",
+    body: r##"- **Idle means idle**: a still window stops redrawing until something changes, so it uses a fraction of the CPU it did.
+- **Faster start**: the app picks its graphics card without starting OpenGL first and reads the system fonts in the background.
+- **Less memory**: about 25 MB less and less than half the threads."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_393: ChangelogEntry = ChangelogEntry {
     id: "2026-11-28-ede-taskbar-ungrouped",
     date: "2026-11-28",
     title: "One taskbar button per window, if you like",
