@@ -97,6 +97,23 @@ public struct ExpToolDisplay: Equatable, Sendable {
     }
 }
 
+extension ExpToolDisplay {
+    /// EDE-271: a computer-server tool's contract caption
+    /// (`computerToolDisplay`): progressive while it runs, done once it
+    /// settled; nil for any other name. The match is EXACT
+    /// (`mcp__computer__` + a row, trimmed), so another server's `click` or
+    /// `type` stays raw. Mirrors desktop `steer::computer_tool_caption`.
+    public static func computerCaption(toolName: String, settled: Bool) -> String? {
+        let name = toolName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = DomainContract.computerToolPrefix
+        guard name.hasPrefix(prefix) else { return nil }
+        let row = String(name.dropFirst(prefix.count))
+        guard let index = DomainContract.computerToolNames.firstIndex(of: row) else { return nil }
+        let captions = settled ? DomainContract.computerToolDone : DomainContract.computerToolProgressive
+        return captions.indices.contains(index) ? captions[index] : nil
+    }
+}
+
 /// EXP-846: the contract `expToolDisplay.resultKinds` — what an Exponential
 /// tool's answer IS, and therefore what its row previews. An unknown value
 /// (a newer contract against an older client) reads as `.none`: a caption

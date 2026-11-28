@@ -73,7 +73,7 @@ fn previews_open_with(on: Value, cx: &mut TestAppContext) -> (Plugin, Region, Vi
     let factory = uicore_docs::doc("taskbar").expect("the factory taskbar").json();
     let source = json!({
         "surface": factory["surface"],
-        "data": {"app": "firefox"},
+        "data": {"app": "firefox", "key": "firefox"},
         "root": {"id": "taskbar", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": 800, "height": 48}, "children": [
             {"id": "previews", "component": "Popover", "props": {"side": "top", "align": "center"}, "on": on,
              "slots": {"trigger": {"id": "button", "component": "Button", "props": {"label": "Firefox"}}},
@@ -126,21 +126,21 @@ fn the_previews_change_says_open_or_closed(cx: &mut TestAppContext) {
     region.view.update_in(&mut vcx, |v, window, cx| v.dismiss_hosted_popup("previews", window, cx));
     draw(&mut vcx);
     assert_eq!(heard_open(&plugin), vec![("ede_previews".to_string(), Some(true)), ("ede_previews".to_string(), Some(false))]);
-    assert_eq!(plugin.heard.borrow()[1].1["app"], "firefox", "the close names its app");
+    assert_eq!(plugin.heard.borrow()[1].1["key"], "firefox", "the close names its button (#EDE-276: its key)");
 }
 
 /// A person's or an agent's copy of the taskbar from before #EDE-75 calls
-/// the function: a dismissal is as safe, and its `open` still never arrives
-/// (the shell reads such a change as an open, as it always did: those
-/// previews go with the next press, not on leave).
+/// the function: a dismissal is as safe, and since #EDE-264 its `open`
+/// arrives too (the function's args read the change's payload `{open}`
+/// first; `app` still reads the item).
 #[gpui::test]
-fn an_edited_copy_with_the_function_call_dismisses_without_open(cx: &mut TestAppContext) {
+fn an_edited_copy_with_the_function_call_dismisses_and_says_open(cx: &mut TestAppContext) {
     let on = json!({"change": {"functionCall": {"@call": "ede_previews", "args": {"app": {"@path": "app"}, "open": {"@path": "open"}}}}});
     let (plugin, _region, mut vcx) = previews_open_with(on, cx);
     let layers = plugin.shell.borrow().as_ref().unwrap().hosted_layers();
     cx.update(|cx| dismiss_hosted(layers, cx));
     draw(&mut vcx);
-    assert_eq!(heard_open(&plugin), vec![("ede_previews".to_string(), None), ("ede_previews".to_string(), None)]);
+    assert_eq!(heard_open(&plugin), vec![("ede_previews".to_string(), Some(true)), ("ede_previews".to_string(), Some(false))]);
     assert_eq!(plugin.heard.borrow()[1].1["app"], "firefox");
 }
 

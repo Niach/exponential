@@ -14,6 +14,8 @@ const SECRET: &str = "whsec_9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeeddccbbaa";
 const NARROW: f32 = 220.;
 /// The Select's width (`app_mcp`'s).
 const SELECT_W: f32 = 144.;
+/// gpui's default line height (`gpui::phi()`).
+const PHI: f32 = 1.618_034;
 
 /// The IDE's middle-truncated run, as App detail drew it before genUI's
 /// `truncate: "middle"` (kept as this bench's reference).
@@ -98,6 +100,8 @@ pub(super) struct Eui {
 impl Eui {
     fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let ink = crate::settings::doc_ink(cx);
+        // `mid_text`'s `text_xs` / `text_sm` (0.75 / 0.875 rem) at gpui's phi line height.
+        let (xs, sm) = (0.75 * ink.2, 0.875 * ink.2);
         let binding = cx.new(|_| eui_gpui::binding::Binding::new("/pane", json!({}), |s: &serde_json::Value, _| s.clone()));
         let options: Vec<serde_json::Value> = options().into_iter().map(|(value, label)| json!({"label": label, "value": value})).collect();
         let tree = json!({"id": "root", "component": "Stack", "props": {"gap": "lg"}, "style": {"width": "100%"}, "children": [
@@ -105,10 +109,10 @@ impl Eui {
                 {"id": "upstream", "component": "Select", "props": {"label": "github", "name": "upstream", "triggerVariant": "button", "value": "s1", "options": options}, "style": {"width": SELECT_W}},
             ]},
             {"id": "url_col", "component": "Stack", "style": {"width": NARROW}, "children": [
-                {"id": "url", "component": "Text", "props": {"text": URL, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 10.5, "lineHeight": 16.99, "color": ink.3}},
+                {"id": "url", "component": "Text", "props": {"text": URL, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": xs, "lineHeight": xs * PHI, "color": ink.3}},
             ]},
             {"id": "secret_col", "component": "Stack", "style": {"width": NARROW}, "children": [
-                {"id": "secret", "component": "Text", "props": {"text": SECRET, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 12.25, "lineHeight": 19.82}},
+                {"id": "secret", "component": "Text", "props": {"text": SECRET, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": sm, "lineHeight": sm * PHI}},
             ]},
         ]});
         let view = crate::settings::doc_mount_lifted("bench-app-mcp", tree, &binding, window, cx);

@@ -172,6 +172,7 @@ impl Render for Banner {
             .items_center()
             .justify_center()
             .font_family(cx.theme().font_family.clone())
+            .text_size(cx.theme().font_size)
             // The bar is the window: its air (`BAR_SLACK`) stays inside the
             // capsule, whatever ground the window has.
             .child(banner_bar(self.label.clone(), cx).w_full())
@@ -485,7 +486,7 @@ mod tests {
             window.set_rem_size(rem_size(cx));
             let drawn = self.drawn.clone();
             // Unconstrained (an 8000 px row), so the bar takes its own width.
-            div().w(px(8000.)).flex().items_start().font_family(cx.theme().font_family.clone()).child(
+            div().w(px(8000.)).flex().items_start().font_family(cx.theme().font_family.clone()).text_size(cx.theme().font_size).child(
                 div().relative().flex_shrink_0().child(banner_bar(self.label.clone(), cx)).child(
                     gpui::canvas(
                         move |bounds, _, _| drawn.set((f32::from(bounds.size.width), f32::from(bounds.size.height))),

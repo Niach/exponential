@@ -27,3 +27,8 @@ pub(crate) fn publish(_window: &mut Window, _cx: &mut App) {}
 pub fn restore(_cx: &mut App) -> bool {
     false
 }
+
+/// #EDE-275: a link's Settings section for another page window: eDE only.
+pub(crate) fn hand_settings_section(_section: crate::settings::SettingsSection, _cx: &mut App) {}
+
+pub(crate) fn take_settings_section(_window: &mut Window, _cx: &mut App) {}

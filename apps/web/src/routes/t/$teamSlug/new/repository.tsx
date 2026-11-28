@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { REPO_PAGE_COPY as COPY } from "@exp/domain-contract/repo-page"
 import { ChoiceTiles } from "@exp/ui"
 import { NewPageHeading } from "@/components/team/new-page-heading"
-import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { pageFrameClass } from "@/components/page-frame"
 import { AddEcodeRepositoryForm } from "@/components/repo/add-ecode-repository"
 import { GithubRepoPicker } from "@/components/github-repo-picker"
 import { useSettingsPage } from "@/routes/t/$teamSlug/settings/-shared"
@@ -43,7 +43,7 @@ function NewRepositoryRoute() {
   }
 
   return (
-    <div className={`mx-auto w-full max-w-2xl space-y-6 p-4 sm:p-6 ${PAGE_END_CLEARANCE}`} data-testid="new-repository-page">
+    <div className={pageFrameClass()} data-testid="new-repository-page">
       <NewPageHeading teamSlug={teamSlug}>{COPY.new.title}</NewPageHeading>
       <ChoiceTiles
         data-testid="new-repository-provider"

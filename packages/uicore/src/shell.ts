@@ -43,7 +43,8 @@ export interface ShellState {
   windows: ShellWindow[]
   mru: string[]
   workspaces: { active: number; count: number }
-  taskbar: { pinned: string[]; hover: string | null; previews: string | null; menu: string | null }
+  /** hover, previews and menu name a button by its KEY (taskbarButtons' `key`: the app while grouped); #EDE-276: `grouped` false = one button per window (absent while true). */
+  taskbar: { pinned: string[]; hover: string | null; previews: string | null; menu: string | null; grouped?: false }
   startMenu: { open: boolean; query: string; category: string }
   altTab: { open: boolean; selected: number; shown: boolean; app: string | null }
 }
@@ -63,11 +64,12 @@ export type ShellEvent =
   | { kind: `workspace.count`; count: number }
   | { kind: `taskbar.pin`; app: string }
   | { kind: `taskbar.unpin`; app: string }
-  | { kind: `taskbar.move`; app: string; before?: string; after?: string }
-  | { kind: `taskbar.hover`; app: string }
+  | { kind: `taskbar.move`; key: string; before?: string; after?: string }
+  | { kind: `taskbar.hover`; key: string }
   | { kind: `taskbar.unhover` }
-  | { kind: `taskbar.previews`; app: string | null }
-  | { kind: `taskbar.menu`; app: string | null }
+  | { kind: `taskbar.previews`; key: string | null }
+  | { kind: `taskbar.menu`; key: string | null }
+  | { kind: `taskbar.grouped`; grouped: boolean }
   | { kind: `startMenu.toggle` }
   | { kind: `startMenu.open` }
   | { kind: `startMenu.close` }
@@ -96,13 +98,14 @@ const closedStartMenu = (): ShellState[`startMenu`] => ({ open: false, query: ``
 const closedAltTab = (): ShellState[`altTab`] => ({ open: false, selected: 0, shown: false, app: null })
 
 function focus(state: ShellState, id: string): void {
-  if (!state.windows.some((w) => w.id === id)) return
+  const hit = state.windows.find((w) => w.id === id)
+  if (!hit) return
+  // #EDE-277: grouped-window-list's onFocusChange: a focus in a group ends the group's call for attention (its button stops flashing); ungrouped, only the window's own.
+  const grouped = state.taskbar.grouped !== false
   for (const w of state.windows) {
     w.focused = w.id === id
-    if (w.focused) {
-      w.minimized = false
-      delete w.urgent
-    }
+    if (w.focused) w.minimized = false
+    if (w.focused || (grouped && w.app === hit.app && w.workspace === hit.workspace)) delete w.urgent
   }
   state.mru = [id, ...state.mru.filter((m) => m !== id)]
 }
@@ -148,7 +151,7 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
       if (!gone) break
       s.windows = s.windows.filter((w) => w.id !== id)
       s.mru = s.mru.filter((m) => m !== id)
-      if (s.taskbar.previews === gone.app && !s.windows.some((w) => w.app === gone.app)) s.taskbar.previews = null
+      if ((s.taskbar.previews === gone.app && !s.windows.some((w) => w.app === gone.app)) || (s.taskbar.grouped === false && s.taskbar.previews === gone.id)) s.taskbar.previews = null
       clampAltTab(s)
       break
     }
@@ -208,28 +211,39 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
       s.taskbar.pinned = s.taskbar.pinned.filter((a) => a !== e.app)
       break
     case `taskbar.move`:
-      moveButton(s, e.app as string, e.before as string | undefined, e.after as string | undefined)
+      moveButton(s, e.key as string, e.before as string | undefined, e.after as string | undefined)
       break
     case `taskbar.hover`:
-      s.taskbar.hover = e.app as string
+      s.taskbar.hover = e.key as string
       break
     case `taskbar.unhover`:
       s.taskbar.hover = null
       break
     case `taskbar.previews`:
-      s.taskbar.previews = (e.app as string | null) ?? null
+      s.taskbar.previews = (e.key as string | null) ?? null
       if (s.taskbar.previews !== null) {
         s.taskbar.menu = null
         s.startMenu = closedStartMenu()
       }
       break
     case `taskbar.menu`:
-      s.taskbar.menu = (e.app as string | null) ?? null
+      s.taskbar.menu = (e.key as string | null) ?? null
       if (s.taskbar.menu !== null) {
         s.taskbar.previews = null
         s.startMenu = closedStartMenu()
       }
       break
+    case `taskbar.grouped`: {
+      // #EDE-276: grouped-window-list's group-apps: the list is built again (refreshAllWorkspaces), so its popups close.
+      const grouped = e.grouped === true
+      if (grouped === (s.taskbar.grouped !== false)) break
+      if (grouped) delete s.taskbar.grouped
+      else s.taskbar.grouped = false
+      s.taskbar.hover = null
+      s.taskbar.previews = null
+      s.taskbar.menu = null
+      break
+    }
     case `startMenu.toggle`:
       if (s.startMenu.open) s.startMenu = closedStartMenu()
       else openStartMenu(s)
@@ -286,8 +300,27 @@ export function reduce(given: ShellState, event: ShellEvent): ShellState {
   return s
 }
 
-/** #EDE-255: grouped-window-list's drag (applet.js handleDragOver / moveLauncher): pinned and unpinned buttons stay apart. */
-function moveButton(s: ShellState, app: string, before: string | undefined, after: string | undefined): void {
+/** #EDE-255: grouped-window-list's drag (applet.js handleDragOver / moveLauncher): pinned and unpinned buttons stay apart. #EDE-276: keys name buttons; a window dragged onto another of its app (ungrouped) goes right before or after it in `windows`, any other pair moves their apps. */
+function moveButton(s: ShellState, key: string, before: string | undefined, after: string | undefined): void {
+  const targetKey = before ?? after
+  if (targetKey === undefined || targetKey === key) return
+  const buttons = taskbarButtons(s)
+  const src = buttons.find((b) => b.key === key)
+  const dst = buttons.find((b) => b.key === targetKey)
+  if (!src || !dst) return
+  if (s.taskbar.grouped === false && src.app === dst.app) {
+    const moved = s.windows.find((w) => w.id === src.key)
+    if (!moved || src.windows.length === 0 || dst.windows.length === 0) return
+    const rest = s.windows.filter((w) => w.id !== moved.id)
+    const i = rest.findIndex((w) => w.id === dst.key)
+    rest.splice(before !== undefined ? i : i + 1, 0, moved)
+    s.windows = rest
+    return
+  }
+  moveApp(s, src.app, before !== undefined ? dst.app : undefined, before !== undefined ? undefined : dst.app)
+}
+
+function moveApp(s: ShellState, app: string, before: string | undefined, after: string | undefined): void {
   const target = before ?? after
   if (target === undefined || target === app) return
   const pinned = s.taskbar.pinned
@@ -317,6 +350,8 @@ function openStartMenu(s: ShellState): void {
 // ---- selectors -------------------------------------------------------------
 
 export interface TaskbarButton {
+  /** #EDE-276: what names the button (its template key, the taskbar events' and selectors' `key`): the app while grouped; ungrouped, its window's id (a pinned app without a window: the app). */
+  key: string
   app: string
   pinned: boolean
   windows: string[]
@@ -329,14 +364,14 @@ export interface TaskbarButton {
 
 const onActive = (state: ShellState): ShellWindow[] => state.windows.filter((w) => w.workspace === state.workspaces.active)
 
-/** Mint's grouped window list: pinned apps first in pin order, then the running unpinned apps in the order their first window appeared; the active workspace only. */
+/** Mint's grouped window list: pinned apps first in pin order, then the running unpinned apps in the order their first window appeared; the active workspace only. #EDE-276: ungrouped (group-apps off), each group becomes one button per window in its order (a pinned app without a window keeps its launcher). */
 export function taskbarButtons(state: ShellState): TaskbarButton[] {
   const active = onActive(state)
   const apps: string[] = [...state.taskbar.pinned]
   for (const w of active) if (!apps.includes(w.app)) apps.push(w.app)
-  return apps.map((app) => {
-    const ws = active.filter((w) => w.app === app)
-    const button: TaskbarButton = {
+  const button = (key: string, app: string, ws: ShellWindow[]): TaskbarButton => {
+    const b: TaskbarButton = {
+      key,
       app,
       pinned: state.taskbar.pinned.includes(app),
       windows: ws.map((w) => w.id),
@@ -344,16 +379,29 @@ export function taskbarButtons(state: ShellState): TaskbarButton[] {
       minimized: ws.length > 0 && ws.every((w) => w.minimized),
       running: ws.length > 0,
     }
-    if (ws.some((w) => w.urgent === true)) button.urgent = true
-    return button
+    if (ws.some((w) => w.urgent === true)) b.urgent = true
+    return b
+  }
+  return apps.flatMap((app) => {
+    const ws = active.filter((w) => w.app === app)
+    if (state.taskbar.grouped !== false || ws.length === 0) return [button(app, app, ws)]
+    return ws.map((w) => button(w.id, app, [w]))
   })
+}
+
+/** #EDE-276: the windows a button acts on: its own (an ungrouped window's button: that window), else the app's on the active workspace (a key no button carries is an app). */
+function buttonWindows(state: ShellState, key: string): { app: string; windows: ShellWindow[] } {
+  const hit = taskbarButtons(state).find((b) => b.key === key)
+  const active = onActive(state)
+  if (hit) return { app: hit.app, windows: active.filter((w) => hit.windows.includes(w.id)) }
+  return { app: key, windows: active.filter((w) => w.app === key) }
 }
 
 export type TaskbarPress = { action: `launch` } | { action: `minimize`; id: string } | { action: `focus`; id: string }
 
-/** #EDE-254: the group's last focused window: of the app's active-workspace windows the one earliest in the mru, else the first. */
-export function lastFocused(state: ShellState, app: string): ShellWindow | null {
-  const ws = onActive(state).filter((w) => w.app === app)
+/** #EDE-254: the group's last focused window: of the button's windows (the app's active-workspace ones while grouped) the one earliest in the mru, else the first. */
+export function lastFocused(state: ShellState, key: string): ShellWindow | null {
+  const ws = buttonWindows(state, key).windows
   const byMru = (list: ShellWindow[]): ShellWindow | null => {
     for (const id of state.mru) {
       const hit = list.find((w) => w.id === id)
@@ -373,15 +421,15 @@ export function urgentLit(ms: number): boolean {
 }
 
 /** Mint's click on a button (grouped-window-list's left-click-action 2): launch, else toggle the group's last focused window (minimize it while it has the focus, focus it otherwise). */
-export function taskbarPress(state: ShellState, app: string): TaskbarPress {
-  const w = lastFocused(state, app)
+export function taskbarPress(state: ShellState, key: string): TaskbarPress {
+  const w = lastFocused(state, key)
   if (!w) return { action: `launch` }
   return w.focused && !w.minimized ? { action: `minimize`, id: w.id } : { action: `focus`, id: w.id }
 }
 
 /** #EDE-254: the middle button (middle-click-action 3): the group's last focused window closes. */
-export function taskbarMiddle(state: ShellState, app: string): { action: `close`; id: string } | null {
-  const w = lastFocused(state, app)
+export function taskbarMiddle(state: ShellState, key: string): { action: `close`; id: string } | null {
+  const w = lastFocused(state, key)
   return w ? { action: `close`, id: w.id } : null
 }
 
@@ -406,10 +454,10 @@ export interface TaskbarMenuContext {
 const RECENT_MAX = 10
 
 /** #EDE-254: a group's right-click menu, grouped-window-list's menus.js in its order (shell.json's $comment). */
-export function taskbarMenu(state: ShellState, app: string, context: TaskbarMenuContext = {}): MenuRow[] {
+export function taskbarMenu(state: ShellState, key: string, context: TaskbarMenuContext = {}): MenuRow[] {
   const outputs = context.outputs ?? 1
-  const ws = onActive(state).filter((w) => w.app === app)
-  const w = lastFocused(state, app)
+  const { app, windows: ws } = buttonWindows(state, key)
+  const w = lastFocused(state, key)
   const facts = (w && context.windows?.[w.id]) || {}
   const rows: MenuRow[] = []
   const sep = () => rows.push({ kind: `separator` })
@@ -463,8 +511,8 @@ export function taskbarMenu(state: ShellState, app: string, context: TaskbarMenu
 }
 
 /** Mint's scroll on a button: cycles the group's windows from the focused one (down = next, up = previous, wrapping); none focused = the first (down) or the last (up). */
-export function taskbarScroll(state: ShellState, app: string, direction: `up` | `down`): { action: `focus`; id: string } | null {
-  const ws = onActive(state).filter((w) => w.app === app)
+export function taskbarScroll(state: ShellState, key: string, direction: `up` | `down`): { action: `focus`; id: string } | null {
+  const ws = buttonWindows(state, key).windows
   if (ws.length === 0) return null
   const at = ws.findIndex((w) => w.focused)
   const n = ws.length

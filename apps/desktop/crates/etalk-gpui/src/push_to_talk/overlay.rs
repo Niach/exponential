@@ -683,8 +683,8 @@ fn specimen(view: &Face) -> Capsule {
 impl Render for OverlayView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // No `Root` here: the rem and the font are set like the banner's.
-        window.set_rem_size(cx.theme().font_size);
-        let root = div().size_full().flex().items_center().justify_center().font_family(cx.theme().font_family.clone());
+        window.set_rem_size(crate::bar::rem_size(cx));
+        let root = div().size_full().flex().items_center().justify_center().font_family(cx.theme().font_family.clone()).text_size(cx.theme().font_size);
         // EXP-1912: a floating pill's place; only the pill takes clicks,
         // every other point of the layer surface belongs to what is under it.
         let pill = size(px(VOICE_CALL.pill.width), px(VOICE_CALL.pill.height));

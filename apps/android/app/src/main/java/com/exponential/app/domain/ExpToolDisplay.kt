@@ -53,6 +53,22 @@ object ExpToolDisplay {
      * `exponential_pr_open` elsewhere). The contract PREFIX is required —
      * that is what keeps another MCP server's `issues_create` out.
      */
+    /**
+     * EDE-271: a computer-server tool's contract caption
+     * (`computerToolDisplay`): progressive while it runs, done once it
+     * settled; null for any other name. The match is EXACT
+     * (`mcp__computer__` + a row, trimmed), so another server's `click` or
+     * `type` stays raw. Mirrors desktop `steer::computer_tool_caption`.
+     */
+    fun computerCaption(name: String?, settled: Boolean): String? {
+        val trimmed = name?.trim().orEmpty()
+        if (!trimmed.startsWith(DomainContract.computerToolPrefix)) return null
+        val index = DomainContract.computerToolNames.indexOf(trimmed.removePrefix(DomainContract.computerToolPrefix))
+        if (index < 0) return null
+        val captions = if (settled) DomainContract.computerToolDone else DomainContract.computerToolProgressive
+        return captions.getOrNull(index)
+    }
+
     fun row(name: String?): String? {
         val trimmed = name?.trim().orEmpty()
         if (trimmed.isEmpty()) return null

@@ -105,7 +105,10 @@ impl Ink {
         let chrome = crate::controls::ide_chrome();
         let theme = cx.theme();
         Self {
-            rem: f32::from(theme.font_size),
+            // #EDE-278: the settings genUI docs keep the 14px rung the
+            // exponential theme's row Input/Select recipes are tuned to
+            // (12.25 / 17.5), so a group never mixes two text sizes.
+            rem: theme::FONT_SIZE_PX,
             foreground: hex(theme.foreground),
             hint: hex(theme.foreground),
             value: hex(theme.foreground),

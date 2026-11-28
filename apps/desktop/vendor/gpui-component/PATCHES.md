@@ -57,6 +57,14 @@ upstream carries them).
 - EXP-1859, `src/menu/popup_menu.rs`: an element row may shrink
   (`min_w_0`), so a label longer than the menu's max width truncates and
   its trailing control (the voice menu's switch) stays inside.
+- #EDE-278, a rem apart from the body text: `src/theme/mod.rs` `Theme`
+  gains `rem_size: Option<Pixels>` (default `None`), `src/root.rs`
+  `WindowState::prepare` sets the window rem from it (else `font_size`, the
+  upstream behaviour) and `WindowState::style` sizes the root text at
+  `font_size` (identical upstream, where rem = `font_size`). The IDE runs the
+  web's 16px rem (genUI `type.size.base`: every rem helper, gpui-component
+  control and `text_sm` at the web's pixel) under 14px body text
+  (`type.size.sm`).
 - Packaging only: dropped `tests/` (and the manifest's `[[test]]` entry that
   pointed into it), `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`.
   No other source is modified.

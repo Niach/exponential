@@ -31,6 +31,7 @@ import {
 } from "@exp/domain-contract/work-card"
 import type { ScriptCall, ScriptCardInput } from "@exp/domain-contract/script-card"
 import { taskQueue, type TaskQueue } from "@exp/domain-contract/task-queue"
+import { computerToolCaption } from "@exp/domain-contract/trace"
 import scriptCardSpec from "@exp/domain-contract/fixtures/script-card.json"
 import {
   entityRefKinds,
@@ -838,7 +839,7 @@ export function lastToolLine<
     if (item.kind !== `tool`) continue
     const name = item.name ?? ``
     const exp = expToolDisplay(name)
-    let head = name
+    let head = computerToolCaption(name, item.settled === true) ?? name
     let subject = item.detail ?? null
     if (exp) {
       head = expToolCaption(exp, item.settled === true)

@@ -74,6 +74,10 @@ export interface ResolveContext {
   route?: (call: RoutedCall) => RouteAnswer
   /** Round 9 §6.8: a routed call failed (the host sends it, once). */
   onFailure?: (failure: Failure) => void
+  /** #EDE-264: the EVENT's payload while an action resolves: a relative
+   *  path whose first key the payload carries reads inside it
+   *  (`fn(value=$value)` on a Menu `select`); any other path as before. */
+  event?: Record<string, unknown>
 }
 
 /** The synthetic root a Table's LITERAL rows are mounted under in a slot
@@ -214,10 +218,17 @@ export const CLIENT_FUNCTIONS: Record<string, ClientFunction> = {
   ...EXPRESSIONS,
 }
 
+/** A binding's value: #EDE-264 the event's payload first for a relative
+ *  path whose first key it carries, else the data model in the scope. */
+function readBinding(path: string, ctx: ResolveContext): unknown {
+  if (ctx.event && path !== `` && !path.startsWith(`/`) && Object.prototype.hasOwnProperty.call(ctx.event, pointerTokens(path)[0]!)) return getPointer(ctx.event, `/${path}`)
+  return getPointer(ctx.data, absolutePath(path, ctx.scope))
+}
+
 /** A prop value with its bindings and calls resolved for one render. Plain
  *  objects recurse (a check's `condition`, a menu item's label). */
 export function resolveValue(value: unknown, ctx: ResolveContext): unknown {
-  if (isBinding(value)) return getPointer(ctx.data, absolutePath(value[`@path`], ctx.scope))
+  if (isBinding(value)) return readBinding(value[`@path`], ctx)
   if (isCall(value)) {
     const name = value[`@call`]
     if (name === INDEX_FUNCTION) {

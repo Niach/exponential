@@ -66,4 +66,24 @@ class ExpToolDisplayTest {
             )
         }
     }
+
+    /** EDE-271: every computer-server row reads its contract captions; only
+     *  the exact `mcp__computer__` name resolves. */
+    @Test
+    fun `computer tools read their contract captions`() {
+        val rows = DomainContract.computerToolNames
+        assertEquals(true, rows.isNotEmpty())
+        assertEquals(rows.size, DomainContract.computerToolProgressive.size)
+        assertEquals(rows.size, DomainContract.computerToolDone.size)
+        rows.forEachIndexed { index, row ->
+            val name = DomainContract.computerToolPrefix + row
+            assertEquals(DomainContract.computerToolProgressive[index], ExpToolDisplay.computerCaption(name, settled = false))
+            assertEquals(DomainContract.computerToolDone[index], ExpToolDisplay.computerCaption(" $name ", settled = true))
+        }
+        assertEquals("Taking screenshot", ExpToolDisplay.computerCaption("mcp__computer__screenshot", settled = false))
+        assertEquals("Typed", ExpToolDisplay.computerCaption("mcp__computer__type", settled = true))
+        for (name in listOf("type", "left_click", "mcp__other__type", "x_mcp__computer__type", "mcp__computer__nope", "mcp__computer__", "", null)) {
+            assertNull(name, ExpToolDisplay.computerCaption(name, settled = true))
+        }
+    }
 }

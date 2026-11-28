@@ -205,6 +205,11 @@ pub struct ResolveContext<'a> {
     /// `rows`, the TS `DataScope.item`): relative paths read inside it,
     /// absolute ones still the data, and a relative `set` writes nothing.
     pub item: Option<&'a Value>,
+    /// #EDE-264: the EVENT's payload while an action resolves (`fire`): a
+    /// relative path whose first key the payload carries reads inside it
+    /// (`fn(value=$value)` on a Menu `select`), any other one reads the
+    /// scope as before (the TS `DataScope.event`).
+    pub event: Option<&'a Value>,
     /// The catalog whose prop schemas decide which props are DATA
     /// ([`bind_tree`]); `None` = the core catalog.
     pub view: Option<&'a CatalogView>,
@@ -287,7 +292,7 @@ const INVALID_FUNCTION_CALL: &str = "INVALID_FUNCTION_CALL";
 
 impl<'a> ResolveContext<'a> {
     pub fn new(data: &'a Value, scope: &'a str) -> ResolveContext<'a> {
-        ResolveContext { data, scope, strings: None, overlay: None, item: None, view: None, formatter: None, now: None, index: None, catalog_id: None, available: None, position: Position::Reactive, route: None, on_error: None, reads: None }
+        ResolveContext { data, scope, strings: None, overlay: None, item: None, event: None, view: None, formatter: None, now: None, index: None, catalog_id: None, available: None, position: Position::Reactive, route: None, on_error: None, reads: None }
     }
 
     /// The surface's default catalog and the router's available set (§5.5).
@@ -342,6 +347,12 @@ impl<'a> ResolveContext<'a> {
         ResolveContext { item: Some(item), ..self }
     }
 
+    /// #EDE-264: an action's relative paths read the event's payload first
+    /// (see [`ResolveContext::event`]).
+    pub fn with_event(self, payload: &'a Value) -> ResolveContext<'a> {
+        ResolveContext { event: Some(payload), ..self }
+    }
+
     /// Bind against an extended catalog (its components' prop schemas).
     pub fn with_view(self, view: &'a CatalogView) -> ResolveContext<'a> {
         ResolveContext { view: Some(view), ..self }
@@ -350,6 +361,12 @@ impl<'a> ResolveContext<'a> {
     /// The value a binding path names: inside the literal item for a
     /// relative path under an item scope, else at its absolute pointer.
     pub fn read_path(&self, path: &str) -> Option<&'a Value> {
+        if let Some(event) = self.event.filter(|_| !path.is_empty() && !path.starts_with('/')) {
+            let first = path.split('/').next().unwrap_or_default().replace("~1", "/").replace("~0", "~");
+            if event.as_object().is_some_and(|o| o.contains_key(&first)) {
+                return get_pointer(event, &format!("/{path}"));
+            }
+        }
         if !path.starts_with('/') {
             if let Some(item) = self.item {
                 return if path.is_empty() { Some(item) } else { get_pointer(item, &format!("/{path}")) };

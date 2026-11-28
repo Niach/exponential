@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- An action's relative paths read the event's payload first (#EDE-264, the core's rule): `on={select: fn(value=$value)}` passes the picked value to the function; `fixtures/interactions-round1.json` `eventArgs` (`interactions-fixture.test.tsx`).
 - `Inter Symbols` after every theme family (the core's shared web recipes: font stacks + the inlined `@font-face` rules), so ⌘ and the other key symbols draw in the same face on every platform.
 - Select option `section` (#EXP-2161): the unsectioned options first, then each section's run under its `sectionHeading` part (`role=presentation`, never an option; `selectSectionGap` under a row), both popups.
 - Text `runs` + `dropCap` (genUI round 4): styled spans (weights, tones, marks, policed links) and a floated first letter.

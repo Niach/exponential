@@ -365,8 +365,9 @@ impl Surface {
     /// writes EXACTLY what the component wrote — `write_through` /
     /// `write_field` — before it fires; nothing is inferred from the
     /// payload, whose keys may name other things: an `upload`'s `added`),
-    /// so the context and the function's args resolve against that data,
-    /// then `set` writes, then the event goes out with the payload merged
+    /// so the context and the function's args resolve against that data
+    /// (#EDE-264: a relative path whose first key the payload carries reads
+    /// the payload), then `set` writes, then the event goes out with the payload merged
     /// into its context.
     pub(super) fn fire(&mut self, id: &str, event: &str, payload: Option<Value>) -> Vec<OutEvent> {
         let Some(node) = self.source_node(id) else { return vec![] };
@@ -378,9 +379,12 @@ impl Surface {
         let pressed = if event == "rowPress" { payload.as_ref().and_then(|p| p.get("row")).cloned() } else { None };
         let outcome = {
             let ctx = self.resolve_ctx(&scope);
-            let ctx = match &pressed {
-                Some(row) => ctx.with_item(row),
-                None => ctx,
+            // #EDE-264: every other event's relative paths read its payload
+            // first (`fn(value=$value)` on a Menu `select`), then the scope.
+            let ctx = match (&pressed, &payload) {
+                (Some(row), _) => ctx.with_item(row),
+                (None, Some(p)) if p.is_object() => ctx.with_event(p),
+                _ => ctx,
             };
             run_action(&action, &ctx)
         };

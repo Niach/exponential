@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.SurfaceActionEvent
+import at.exponential.ui.host.SurfaceFunctionCallEvent
 import at.exponential.ui.host.SurfaceInputEvent
 import at.exponential.ui.host.UploadEvent
 import at.exponential.ui.json.JsonValue
@@ -88,9 +89,14 @@ class RecordingHost : HostPlugin {
     val urls = ArrayList<String>()
     val unknowns = ArrayList<String>()
     val uploads = ArrayList<UploadEvent>()
+    val calls = ArrayList<SurfaceFunctionCallEvent>()
 
     override fun onAction(event: SurfaceActionEvent) {
         actions.add(event)
+    }
+
+    override fun onFunctionCall(event: SurfaceFunctionCallEvent) {
+        calls.add(event)
     }
 
     override fun onUpload(event: UploadEvent) {

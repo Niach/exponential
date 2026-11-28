@@ -26,9 +26,10 @@ pub const LABEL_SIDE: f32 = 4.;
 /// ellipsized them.
 pub const BAR_SLACK: f32 = 4.;
 
-/// The bar's rem: the theme's font size, as every `Root` window sets it.
+/// The bar's rem, as every `Root` window sets it: the theme's rem
+/// (#EDE-278), else its font size.
 pub fn rem_size(cx: &App) -> Pixels {
-    cx.theme().font_size
+    cx.theme().rem_size.unwrap_or(cx.theme().font_size)
 }
 
 /// One line's shaped width in the theme's font, the path the text element

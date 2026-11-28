@@ -565,6 +565,30 @@
       }
     ]
   },
+  "computerToolDisplay": {
+    "$comment": "EDE-271: the computer server's tools (apps/desktop/crates/epilot/src/tools.rs) as trace captions x4: progressive while the call runs, done once it settled. A name matches only as EXACTLY `prefix` + row (trimmed), so another server's `click` or `type` stays raw. trace_tool (fixtures/trace.json) reads it before the kind's verbs.",
+    "prefix": "mcp__computer__",
+    "tools": [
+      { "name": "screenshot", "progressive": "Taking screenshot", "done": "Took screenshot" },
+      { "name": "list_windows", "progressive": "Listing windows", "done": "Listed windows" },
+      { "name": "activate_window", "progressive": "Switching window", "done": "Switched window" },
+      { "name": "cursor_position", "progressive": "Finding pointer", "done": "Found pointer" },
+      { "name": "mouse_move", "progressive": "Moving pointer", "done": "Moved pointer" },
+      { "name": "left_click", "progressive": "Clicking", "done": "Clicked" },
+      { "name": "right_click", "progressive": "Right-clicking", "done": "Right-clicked" },
+      { "name": "middle_click", "progressive": "Middle-clicking", "done": "Middle-clicked" },
+      { "name": "double_click", "progressive": "Double-clicking", "done": "Double-clicked" },
+      { "name": "drag", "progressive": "Dragging", "done": "Dragged" },
+      { "name": "scroll", "progressive": "Scrolling", "done": "Scrolled" },
+      { "name": "type", "progressive": "Typing", "done": "Typed" },
+      { "name": "paste_text", "progressive": "Pasting text", "done": "Pasted text" },
+      { "name": "copy_selection", "progressive": "Copying selection", "done": "Copied selection" },
+      { "name": "read_clipboard", "progressive": "Reading clipboard", "done": "Read clipboard" },
+      { "name": "key", "progressive": "Pressing keys", "done": "Pressed keys" },
+      { "name": "wait", "progressive": "Waiting", "done": "Waited" },
+      { "name": "launch_app", "progressive": "Launching app", "done": "Launched app" }
+    ]
+  },
   "expToolDisplay": {
     "prefix": "exponential_",
     "resultKinds": [
