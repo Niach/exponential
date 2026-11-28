@@ -4,7 +4,7 @@
 # over the session bus' voice board). The voice agent is the global Assistant. No call: the agent's
 # mark in a quiet wave and Call (ede_voice {action: call}). In a call: the wave with the call's
 # activity and the microphone's level, the state line (ringing, connecting: the status; else the
-# timer), the call's last lines as bubbles, then Mute / Unmute (a Button: #EDE-270), Open chat (the Assistant's one window,
+# timer), the call's last lines as bubbles, then Mute (a Toggle pressed while muted, #EDE-270), Open chat (the Assistant's one window,
 # Super+A's) and End (ede_voice {action: mute | chat | end}; the holder ends, mutes and dials).
 surface("voice-tray", extensions={ede: {popup: {parent: "taskbar", anchor: "voice_tray", placement: "top-end", size: {width: 400, height: 560}}, functions: ["ede_voice"]}})
 $/voice/activity = "idle"
@@ -33,6 +33,6 @@ idle_foot = Box(style={display: "flex", flexDirection: "row", alignItems: "cente
 chat_idle = Button(label="Open chat", icon="action-chat", variant="outline", size="sm", on={press: ede_voice(action="chat")})
 call = Button(label=$/voice/callLabel, icon="voice-call", size="sm", disabled=not(value=cond(if=$/voice/canCall, then=true, else=false)), on={press: ede_voice(action="call")})
 call_foot = Box(style={display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: "$spacing.md", padding: "$spacing.md", borderTopWidth: 1, borderColor: "$color.border", flexShrink: 0}, children=[mute, chat, hang], visible=cond(if=$/voice/call, then=true, else=false))
-mute = Button(label=$/voice/mute/label, icon=$/voice/mute/icon, variant="outline", size="sm", on={press: ede_voice(action="mute")})
+mute = Toggle(label="Mute", icon="call-mute", pressed=$/voice/muted, variant="outline", size="sm", on={change: ede_voice(action="mute")})
 chat = Button(label="Open chat", icon="action-chat", variant="outline", size="sm", on={press: ede_voice(action="chat")})
 hang = Button(label=$/voice/endLabel, icon="call-end", variant="destructive", size="sm", on={press: ede_voice(action="end")})

@@ -76,3 +76,25 @@ fn no_json_documents_ship() {
     let json: Vec<String> = std::fs::read_dir(&dir).unwrap().filter_map(Result::ok).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".json") && n != "theme.json").collect();
     assert!(json.is_empty(), "{json:?}");
 }
+
+/// #EDE-270: the Voice tray's Mute is a Toggle again: a press target with
+/// only `on.change` (eui-core's `pressable`, what eui-gpui's click keys
+/// on), pressed while /voice/muted, and a press calls `ede_voice {action:
+/// mute}` (the holder flips the call's mute and feeds /voice/muted back).
+#[test]
+fn the_voice_tray_mute_toggle_presses_and_calls_the_holder() {
+    let (_, doc) = factory_documents().into_iter().find(|(n, _)| n == "voice-tray.express").expect("voice-tray.express");
+    let document = ede_ui::validate_document("voice-tray", &doc).expect("valid");
+    let mut s = document.surface(eui_core::themes::builtin_theme("exponential").expect("the exponential theme"));
+    s.set_data("/voice/call", Some(serde_json::json!(true))).unwrap();
+    let mut m = eui_core::measure::FixedMeasure { sizes: Default::default(), wrap: true };
+    s.layout(&mut m);
+    let i = s.index_of("mute").expect("the Mute toggle");
+    let node = s.layout_node(i).expect("laid out");
+    assert_eq!((node.component.as_str(), node.pressable), ("Toggle", true));
+    let calls: Vec<(String, Value)> = s.event(i, "press", None).into_iter().filter_map(|e| match e {
+        eui_core::surface::OutEvent::FunctionCall { name, args, .. } => Some((name, args)),
+        _ => None,
+    }).collect();
+    assert_eq!(calls, vec![("ede_voice".to_string(), serde_json::json!({"action": "mute"}))]);
+}

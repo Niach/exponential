@@ -104,7 +104,9 @@ export function forced(states: readonly string[], ...extra: (string | false | un
 /** VAPP-206: a Table's `rowPress` resolves in the pressed row: a relative
  *  `{path: "id"}` reads it (the data model's other paths stay absolute). */
 function rowPressContext(event: string, payload: Record<string, unknown> | undefined, rctx: ResolveContext): ResolveContext {
-  if (event !== `rowPress` || payload?.row === undefined) return rctx
+  // #EDE-264: any other event's relative paths read its payload first
+  // (`fn(value=$value)` on a Menu `select`), then the scope (the core's `fire`).
+  if (event !== `rowPress` || payload?.row === undefined) return payload ? { ...rctx, event: payload } : rctx
   return { ...rctx, data: { ...(rctx.data as Record<string, unknown>), $pressedRow: payload.row }, scope: `/$pressedRow` }
 }
 
