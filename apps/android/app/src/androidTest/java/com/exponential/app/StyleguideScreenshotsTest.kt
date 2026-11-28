@@ -46,6 +46,8 @@ import com.exponential.app.domain.ComposerAgentRow
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuRowId
 import com.exponential.app.domain.SessionScreen
+import com.exponential.app.domain.SidebarMenus
+import com.exponential.app.ui.repo.NEW_REPOSITORY_TEST_ID
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.ResultsTab
 import com.exponential.app.domain.SearchList
@@ -188,7 +190,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_app-record-undo · sg_app-csv-import · sg_app-settings-links · sg_app-settings-automations ·
  *   sg_app-events (#EXP-1850) ·
  *   sg_device-attention · sg_os-live-activity · sg_os-live-activity-island · sg_os-notification-actions ·
- *   sg_teams · sg_teams-menu · sg_assistant-tab · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
+ *   sg_teams · sg_teams-menu · sg_new-repository (#EXP-2171) · sg_assistant-tab · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
  *   sg_session-synced-tail · sg_chat-results · sg_plan-page · sg_needs-you · sg_results-tab ·
@@ -581,6 +583,23 @@ class StyleguideScreenshotsTest {
             flow.screenshot("sg_teams-menu")
             Espresso.pressBack()
             flow.waitForGone(hasTestTag("team-row-menu"), NAV_TIMEOUT)
+        }
+        // --- sg_new-repository (#EXP-2171, repo-page.json NEW › REPOSITORY): the
+        // first team row's + (THE New list) › Repository, on its preselected
+        // Host on Exponential tile; Back returns to the tree.
+        if (ScreenshotFlow.isShotWanted("sg_new-repository")) {
+            step("new-repository") {
+                openTeamPage()
+                composeRule.onAllNodes(hasContentDescription("${SidebarMenus.COPY.getValue("new")}, ", substring = true)).onFirst().performClick()
+                flow.waitFor(hasTestTag("team-menu-new-repository"), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag("team-menu-new-repository")).performClick()
+                flow.waitFor(hasTestTag(NEW_REPOSITORY_TEST_ID), NAV_TIMEOUT)
+                flow.waitFor(hasTestTag("new-repo-create"), NAV_TIMEOUT)
+                flow.settle(longer = true)
+                flow.screenshot("sg_new-repository")
+                composeRule.onNode(hasContentDescription("Back")).performClick()
+                flow.waitForGone(hasTestTag(NEW_REPOSITORY_TEST_ID), NAV_TIMEOUT)
+            }
         }
         step("assistant-tab") {
             composeRule.onNode(hasTestTag(Chats.TestIds.TAB_ASSISTANT)).performClick()
