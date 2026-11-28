@@ -2,7 +2,6 @@ package at.exponential.ui.compose
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
@@ -102,7 +101,7 @@ private fun ExtensionLeaf(cx: LeafContext) {
         )
     } else {
         Box(Modifier.fillMaxSize()) {
-            BasicText(
+            ShapedText(
                 kind,
                 style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, null), color = cx.ink.copy(alpha = cx.ink.alpha * 0.6f)),
             )

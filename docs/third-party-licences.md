@@ -689,6 +689,33 @@ lists `web`, `ios` and `android` beside `desktop` and `site`, so the OFL text
 (`apps/desktop/assets/fonts/JetBrainsMono-OFL.txt`) is reproduced in each of
 those clients' `NOTICES.txt`.
 
+## Inter on every client: genUI's key-symbol fallback (2026-11-28)
+
+**Inter** 4.001 (rsms/inter, SIL OFL 1.1, Copyright 2016 The Inter Project
+Authors; no Reserved Font Name) was already shipped by the desktop app and the
+desktop runner (the TTFs in `apps/desktop/assets/fonts/`, embedded by
+`assets.rs`, licence `LICENSE.txt` beside them) and self-hosted by the site.
+Geist and Nunito have no ⌘, so every genUI renderer now bundles **Inter
+Symbols**, a Modified Version of Inter: the four static faces (Regular,
+Medium, SemiBold, Bold) subset with fonttools to the key symbols of
+`packages/exponential-ui/fonts/inter-symbols.json` (⌘⌥⇧⌃, the arrows, return,
+delete, escape, tab…) and renamed `Inter Symbols`, under 5 KB a face
+(`packages/exponential-ui/fonts/build.py`). OFL allows modified versions under
+the same licence, and with no Reserved Font Name the derived name may keep
+"Inter". Each copy carries the OFL text beside it (section 2):
+
+| where | the faces | the licence |
+|---|---|---|
+| `@exponential_app/eui` (npm, the web recipes of React, Solid and the element) | `fonts/InterSymbols-*.woff2` + `.ttf`, and the woff2 inlined as `@font-face` data URLs in `src/web/inter-symbols.generated.ts` | `fonts/OFL-Inter.txt` (the package ships `fonts/`) |
+| `ExponentialUI` (SwiftPM) | `Sources/ExponentialUI/Resources/Fonts/InterSymbols-*.ttf` | `OFL-Inter.txt` in the same resource folder |
+| `ui-compose` (AAR) | `src/main/res/font/inter_symbols_*.ttf` | `ui-compose/OFL-Inter.txt` |
+| `eui-gpui` (crate) | `assets/fonts/InterSymbols-*.ttf` | `assets/fonts/OFL-Inter.txt` |
+
+The curated supplement's `Inter` entry (`packages/licenses/curated/supplement.ts`,
+`FONTS`) now lists `web`, `ios`, `android` and the three app runners beside
+`desktop`, `site` and `runner-desktop`, so every client's `NOTICES.txt`
+reproduces Inter's OFL.
+
 ## Semantic issue search: the embedding model and its runtime (#NEW-134, 2026-11-24)
 
 Semantic issue search computes one embedding per issue **inside the web

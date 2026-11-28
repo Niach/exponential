@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextAlign
@@ -304,7 +303,7 @@ private fun SegmentedBadge(cx: LeafContext, text: String, modifier: Modifier) {
                 .padding(horizontal = padH.dp),
             contentAlignment = Alignment.Center,
         ) {
-            BasicText(text, style = cx.composeTextStyle(ts = ts, color = ink, align = TextAlign.Center), softWrap = false, maxLines = 1)
+            ShapedText(text, style = cx.composeTextStyle(ts = ts, color = ink, align = TextAlign.Center), softWrap = false, maxLines = 1)
         }
     }
 }

@@ -27,6 +27,8 @@ fn main() {
     {
         ipa_mark_attaches_on_coretext();
         println!("test ipa_mark_attaches_on_coretext ... ok");
+        key_symbols_paint_in_inter_symbols();
+        println!("test key_symbols_paint_in_inter_symbols ... ok");
     }
 }
 
@@ -72,4 +74,37 @@ fn ipa_mark_attaches_on_coretext() {
         let mid = (m0 + m1) / 2.0;
         assert!(mid >= b0 - 0.5 && mid <= b1 + 0.5, "mark ink {m0}..{m1} centres over the l's {b0}..{b1}");
     }
+}
+
+/// The bundled `Inter Symbols` registers itself and heads the chain: a ⌘
+/// in Nunito (which has none) shapes in it, never in an OS face
+/// (`EXP_INTER_SYMBOLS` = a face file to load instead of the bundled ones).
+#[cfg(target_os = "macos")]
+fn key_symbols_paint_in_inter_symbols() {
+    use eui_gpui::symbol_fonts::{register_symbol_fonts, INTER_SYMBOLS_FAMILY};
+    let platform = gpui_platform::current_platform(true).text_system();
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/conformance/fonts");
+    platform.add_fonts(vec![Cow::Owned(std::fs::read(format!("{dir}/Nunito-Regular.ttf")).expect("Nunito"))]).expect("Nunito loads");
+    if let Ok(file) = std::env::var("EXP_INTER_SYMBOLS") {
+        platform.add_fonts(vec![Cow::Owned(std::fs::read(file).expect("the face"))]).expect("the face loads");
+    }
+    let ts = Arc::new(TextSystem::new(platform));
+    if std::env::var("EXP_INTER_SYMBOLS").is_err() {
+        register_symbol_fonts(&ts);
+        register_symbol_fonts(&ts);
+    }
+    let window_ts = WindowTextSystem::new(ts.clone());
+    let bare = |family: &str| Font { family: family.to_string().into(), features: Default::default(), fallbacks: None, weight: FontWeight(400.0), style: FontStyle::Normal };
+    let symbols = ts.resolve_font(&bare(INTER_SYMBOLS_FAMILY));
+    assert_eq!(ts.get_font_for_id(symbols).map(|f| f.family.to_string()).as_deref(), Some(INTER_SYMBOLS_FAMILY), "Inter Symbols loads");
+    let font = Font { fallbacks: Some(default_chain()), ..bare("Nunito") };
+    let text = "\u{2318}S";
+    let run = TextRun { len: text.len(), font, color: gpui::black(), background_color: None, underline: None, strikethrough: None };
+    let runs = cluster_runs(&ts, text, &[run], &default_chain());
+    let line = window_ts.shape_line(SharedString::from(text), px(16.0), &runs, None);
+    let cmd: Vec<_> = line.runs.iter().filter(|r| r.glyphs.iter().any(|g| g.index == 0)).map(|r| ts.get_font_for_id(r.font_id).map(|f| f.family.to_string())).collect();
+    assert_eq!(cmd, vec![Some(INTER_SYMBOLS_FAMILY.to_string())], "the command key shapes in Inter Symbols");
+    let symbols_advance = ts.advance(symbols, px(16.0), '\u{2318}').expect("Inter Symbols has the command key");
+    let shaped: Vec<_> = line.runs.iter().filter(|r| r.glyphs.iter().any(|g| g.index == 0)).map(|r| ts.advance(r.font_id, px(16.0), '\u{2318}').ok()).collect();
+    assert_eq!(shaped, vec![Some(symbols_advance)], "at Inter Symbols' advance");
 }

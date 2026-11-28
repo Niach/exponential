@@ -15,7 +15,7 @@ describe(`compileTheme`, () => {
     expect(neutral.css).toContain(`--primary:var(--xui-color-primary)`)
     expect(neutral.css).toContain(`--glass-fill-card:var(--xui-color-card)`)
     expect(neutral.css).toContain(`--xui-spacing-md:12px`)
-    expect(neutral.css).toContain(`--xui-font-sans:"Geist", ui-sans-serif, system-ui, sans-serif`)
+    expect(neutral.css).toContain(`--xui-font-sans:"Geist", "Inter Symbols", ui-sans-serif, system-ui, sans-serif`)
   })
   it(`two themes with one id but different content get two scopes; the same theme the same`, () => {
     const a = loadTheme({ $schema: THEME_SCHEMA_ID, id: `brand`, name: `Brand`, extends: `neutral`, modes: { light: { color: { primary: `#2563eb` } } } }, { themes: BUILTIN_THEMES })
@@ -46,7 +46,7 @@ describe(`compileTheme`, () => {
     const playful = compileTheme(builtinTheme(`playful`))
     expect(playful.css).toContain(`.${playful.scope}.xui-Button-root{`)
     expect(playful.css).toContain(`border-radius:var(--xui-radius-full)`)
-    expect(playful.css).toContain(`--xui-font-sans:"Nunito", Avenir Next, Segoe UI, sans-serif`)
+    expect(playful.css).toContain(`--xui-font-sans:"Nunito", "Inter Symbols", Avenir Next, Segoe UI, sans-serif`)
   })
 })
 
@@ -64,9 +64,9 @@ describe(`values and selectors`, () => {
     expect(cssValue(`native`, true)).toBeNull()
   })
   it(`a quote in a family name is escaped, never the end of the CSS string (F50)`, () => {
-    expect(cssValue(`fontFamily`, `Say "hi"`, {})).toBe(`"Say \\"hi\\""`)
-    expect(cssValue(`fontFamily`, `a\\b`, {})).toBe(`"a\\\\b"`)
-    expect(cssValue(`fontFamily`, `Inter`, { Inter: { fallback: `ui-sans-serif, sans-serif` } })).toBe(`"Inter", ui-sans-serif, sans-serif`)
+    expect(cssValue(`fontFamily`, `Say "hi"`, {})).toBe(`"Say \\"hi\\"", "Inter Symbols"`)
+    expect(cssValue(`fontFamily`, `a\\b`, {})).toBe(`"a\\\\b", "Inter Symbols"`)
+    expect(cssValue(`fontFamily`, `Inter`, { Inter: { fallback: `ui-sans-serif, sans-serif` } })).toBe(`"Inter", "Inter Symbols", ui-sans-serif, sans-serif`)
   })
   it(`shorthands expand to physical sides`, () => {
     expect(declarations({ paddingHorizontal: `$spacing.md`, marginVertical: 4 })).toEqual([

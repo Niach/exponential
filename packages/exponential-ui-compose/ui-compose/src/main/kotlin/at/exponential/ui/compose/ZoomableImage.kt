@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -379,7 +378,7 @@ internal fun ZoomableImageLeaf(cx: LeafContext) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     GlyphView(Glyph.Image, 20f, muted.copy(alpha = muted.alpha * 0.6f))
-                    if (alt.isNotEmpty()) BasicText(
+                    if (alt.isNotEmpty()) ShapedText(
                         alt,
                         style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = muted.copy(alpha = muted.alpha * 0.6f)),
                         maxLines = 1,

@@ -21,6 +21,7 @@
 import { ANIMATIONS, animatesOpacity, coreCatalog, easingCss, parseTokenRef, shadowCss } from "@exponential_app/eui"
 import type { Easing, FontSpec, RecipeRule, ResolvedTheme, Shadow } from "@exponential_app/eui"
 import { fontStack } from "./font-stack"
+import { INTER_SYMBOLS_FONT_FACES } from "./inter-symbols.generated"
 
 export const LAYERS = `@layer xui-base, xui-recipe, xui-node, xui-part, xui-author;`
 
@@ -452,7 +453,8 @@ export const partClass = (component: string, part: string): string => `xui-${com
 export function compileTheme(theme: ResolvedTheme, options: { extensionMacros?: ReadonlySet<string> } = {}): CompiledTheme {
   const scope = themeScope(theme)
   const root = `.xui-surface.${scope}`
-  const chunks: string[] = [LAYERS]
+  // The key-symbol face every font stack names (`fontStack`), inlined: no host setup.
+  const chunks: string[] = [LAYERS, ...INTER_SYMBOLS_FONT_FACES]
   chunks.push(`${root}{${tokenBlock(theme)}}`)
   chunks.push(`${root}[data-xui-mode="light"]{${modeBlock(theme, `light`)}}`)
   chunks.push(`${root}[data-xui-mode="dark"]{${modeBlock(theme, `dark`)}}`)

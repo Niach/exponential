@@ -105,7 +105,9 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
   `TimelineView` (Reduce Motion = the rest frame); windowed lists scroll on
   either axis.
 - **Fonts.** `ExponentialUI.registerFont(at:)` registers a file a theme
-  names (`Inter`); a missing family falls back to the system font.
+  names (`Inter`); a missing family falls back to the system font. Every
+  font cascades to the bundled `Inter Symbols` (key symbols such as ⌘)
+  first.
   `ui-serif` (`type.family.serif`) is the system serif (New York,
   `.withDesign(.serif)`), measured and painted with the same face.
 - **QR scanner camera** (VAPP-162). THE CAMERA IS THE HOST'S (AVFoundation

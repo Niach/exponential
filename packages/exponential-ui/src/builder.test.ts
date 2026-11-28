@@ -117,7 +117,7 @@ describe(`styleToCss`, () => {
     const style = resolveRecipe(neutral, { component: `Button`, part: `root`, props: { variant: `outline`, size: `default` } }, `light`)
     const css = styleToCss(style, neutral.fonts)
     expect(css).toMatchObject({ height: `36px`, "padding-left": `16px`, "padding-right": `16px`, "border-width": `1px`, "border-style": `solid`, "border-color": `#e5e5e5`, "font-weight": `500`, "box-shadow": `0px 1px 2px 0px #0000000d` })
-    expect(css[`font-family`]).toBe(`"Geist", ui-sans-serif, system-ui, sans-serif`)
+    expect(css[`font-family`]).toBe(`"Geist", "Inter Symbols", ui-sans-serif, system-ui, sans-serif`)
     expect(styleToCss({ display: `flex`, flexDirection: `column`, gap: 8, flexGrow: 1, paddingHorizontal: 12, native: true })).toEqual({ display: `flex`, "flex-direction": `column`, gap: `8px`, "flex-grow": `1`, "padding-left": `12px`, "padding-right": `12px` })
   })
 })

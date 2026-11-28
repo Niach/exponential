@@ -8,6 +8,7 @@
 import { easingCss, shadowCss } from "./theme"
 import { ANIMATIONS, animatesOpacity, animationCss, animationTiming, enterDelay } from "./animation"
 import type { Easing, FontSpec, ResolvedStyle, ResolvedTheme, Shadow } from "./theme-types"
+import { INTER_SYMBOLS_FAMILY } from "./inter-symbols"
 
 const UNITLESS = new Set([`flexGrow`, `flexShrink`, `opacity`, `fontWeight`, `aspectRatio`])
 const SHORTHANDS: Record<string, string[]> = {
@@ -63,7 +64,10 @@ export function fontStack(family: string, fonts: Record<string, FontSpec>): stri
   // VAPP-162: a CSS generic family (`ui-serif`, `ui-monospace`…) stays a
   // keyword: quoted it would name a font no system has.
   const name = CSS_GENERIC_FAMILIES.has(family) ? family : cssString(family)
-  return fallback ? `${name}, ${fallback}` : name
+  // The key-symbol face (fonts/inter-symbols.json) right after the theme
+  // family, ahead of any OS fallback: ⌘ is the same glyph everywhere.
+  const symbols = cssString(INTER_SYMBOLS_FAMILY)
+  return fallback ? `${name}, ${symbols}, ${fallback}` : `${name}, ${symbols}`
 }
 
 function cssValue(key: string, value: unknown, fonts: Record<string, FontSpec>, style: Record<string, unknown>): string | null {

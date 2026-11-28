@@ -81,7 +81,8 @@ fun ExponentialSurface(model: SurfaceModel, modifier: Modifier = Modifier, force
         LocalPrimitiveTokens provides model.primitiveTokens,
     ) {
         val measurer = rememberTextMeasurer()
-        val shaper = remember(measurer, density, model) { TextShaper(measurer, density.density, model.fontResolver) }
+        val context = LocalContext.current
+        val shaper = remember(measurer, density, model, context) { TextShaper(measurer, density.density, context, model.fontResolver) }
         DisposableEffect(model, shaper) {
             model.shaper = { shaper }
             model.invalidateMeasures()

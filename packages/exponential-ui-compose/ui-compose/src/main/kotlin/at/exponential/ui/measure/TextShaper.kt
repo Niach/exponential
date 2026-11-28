@@ -1,5 +1,6 @@
 package at.exponential.ui.measure
 
+import android.content.Context
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -47,8 +48,29 @@ fun interface FontResolver {
  * with the SAME [style], so a measured height is the painted height. Line
  * height follows CSS (`n` lines = `n × lineHeight`). Sizes in and out are
  * dp; [density] converts the measurer's px (its Density pins fontScale 1).
+ * A key symbol ([INTER_SYMBOLS_CODEPOINTS]) its face lacks is shaped in
+ * `Inter Symbols` ([symbols]; the context constructor reads the faces' cmaps): the
+ * measurer applies it here, the painters through [symbols].
  */
 class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: FontResolver) {
+    /** With the [context] whose resources hold the faces ([symbols] reads a resource font's cmap through it). */
+    constructor(measurer: TextMeasurer, density: Float, context: Context?, fonts: FontResolver) : this(measurer, density, fonts) {
+        this.context = context?.applicationContext ?: context
+    }
+
+    private var context: Context? = null
+    private val symbolFallback by lazy { SymbolFallback(fonts, context) }
+
+    /**
+     * [text] in [style] with the `Inter Symbols` spans of the key symbols
+     * its runs' faces lack (the CSS stack `"<family>", "Inter Symbols", …`);
+     * the same instance when none applies. Paint what the measurer shaped.
+     */
+    fun symbols(text: AnnotatedString, style: TextStyle): AnnotatedString = symbolFallback.apply(text, style)
+
+    /** [symbols] of a plain string: null = none applies (paint the String itself). */
+    fun symbols(text: String, style: TextStyle): AnnotatedString? = symbolFallback.apply(text, style)
+
     private val widthCache = object : LinkedHashMap<Pair<Any, TextStyle>, Float>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<Any, TextStyle>, Float>?): Boolean = size > 4096
     }
@@ -131,7 +153,7 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
         placeholders: List<AnnotatedString.Range<Placeholder>> = emptyList(),
     ): TextLayoutResult =
         measurer.measure(
-            text,
+            symbols(text, style),
             style,
             placeholders = placeholders,
             overflow = TextOverflow.Clip,
