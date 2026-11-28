@@ -6276,6 +6276,20 @@
         "bytes": 23028,
         "sha256": "1ff6d26d339bd230cc2817bc784ce80965c6a824a7063df76996c50da8f0b947"
       },
+      "desktop": {
+        "file": "shots/new-repository/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 44678,
+        "sha256": "8651dd5a8240abec691ea966eb36915cdf18532a8613c1243d32147ebf7fdbc4"
+      },
+      "ios": {
+        "file": "shots/new-repository/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 23826,
+        "sha256": "c03477e51b304bff216b063f3c7233772249d151be29ff5821f89e3424a36e89"
+      },
       "web": {
         "file": "shots/new-repository/web.webp",
         "width": 1800,
