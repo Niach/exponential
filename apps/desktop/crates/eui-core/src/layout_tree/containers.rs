@@ -390,6 +390,7 @@ impl Builder<'_, '_> {
         let rows = match (&section_by, &node.template) {
             (Some(by), Some(t)) => {
                 let base = crate::data::absolute_path(&t.path, scope);
+                self.note_read(&base);
                 let items = crate::data::get_pointer(self.ctx.data, &base).and_then(Value::as_array).cloned().unwrap_or_default();
                 let sections = crate::list::list_sections(&items, by);
                 let mut rows: Vec<Row> = (0..node.children.len()).map(Row::Static).collect();

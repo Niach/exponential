@@ -871,6 +871,58 @@ fn reduce_flat(components: &[FlatComponent], options: &ReduceOptions) -> ReduceR
     finish(root, issues, lifted, options)
 }
 
+/// #PERF-15: ONE authored subtree (component `id` and everything under it)
+/// reduced again as the full [`reduce_surface`] reduces it at tree level
+/// `depth` (the root = 1): built, expanded, depth-capped. `None` when the
+/// subtree cannot be reduced on its own: any issue (its own, expansion,
+/// depth), a data `template` (lifting is tree-wide), a basic-catalog
+/// component (it consumes its children), an id missing from `lookup`. Tree
+/// guides of the subtree root's SIBLING group are the caller's
+/// ([`crate::tree_guides::refill_siblings`]).
+pub(crate) fn reduce_subtree<'a>(id: &str, depth: usize, lookup: &dyn Fn(&str) -> Option<&'a FlatComponent>, options: &ReduceOptions) -> Option<UiNode> {
+    let mut by_id: HashMap<&'a str, &'a FlatComponent> = HashMap::new();
+    let mut stack = vec![id.to_string()];
+    while let Some(next) = stack.pop() {
+        let flat = lookup(&next)?;
+        if by_id.insert(flat.id.as_str(), flat).is_some() {
+            return None;
+        }
+        let catalog = flat.catalog_id.as_deref().unwrap_or(&options.catalog_id);
+        if crate::functions::is_basic_catalog(catalog) {
+            return None;
+        }
+        match &flat.children {
+            Some(FlatChildren::Ids(ids)) => stack.extend(ids.iter().cloned()),
+            Some(FlatChildren::Template { .. }) => return None,
+            None => {}
+        }
+        stack.extend(flat.slots.iter().flatten().map(|(_, c)| c.clone()));
+    }
+    let mut builder = Builder {
+        by_id,
+        options,
+        parents: HashMap::new(),
+        visiting: HashSet::new(),
+        placed: HashSet::new(),
+        twice_reported: HashSet::new(),
+        budget: Budget::new(),
+        issues: Vec::new(),
+    };
+    let node = builder.build(id, depth)?;
+    let mut issues = std::mem::take(&mut builder.issues);
+    if !issues.is_empty() || subtree_has_template(&node) {
+        return None;
+    }
+    let mut built = Vec::new();
+    let mut node = if options.expand { expand(node, &mut issues, &mut built, options) } else { node };
+    cap_depth(&mut node, depth, &mut issues, &options.catalog_id);
+    (issues.is_empty() && built.is_empty() && !subtree_has_template(&node)).then_some(node)
+}
+
+fn subtree_has_template(node: &UiNode) -> bool {
+    node.template.is_some() || node.children.iter().chain(node.slots.iter().flat_map(|s| s.values())).any(subtree_has_template)
+}
+
 /// The nested authoring form → a normalized tree (same validation and
 /// expansion as [`reduce_surface`]; `root_id` is ignored).
 pub fn reduce_nested(tree: &NestedNode, options: &ReduceOptions) -> ReduceResult {

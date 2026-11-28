@@ -153,6 +153,12 @@ pub fn apply_tree_guides(root: &mut UiNode) {
     visit(root);
 }
 
+/// #PERF-15: the guides of ONE sibling group again (a node of it was
+/// reduced anew on its own: its guide is its siblings').
+pub(crate) fn refill_siblings(nodes: &mut [UiNode]) {
+    fill_siblings(nodes);
+}
+
 fn visit(node: &mut UiNode) {
     fill_siblings(&mut node.children);
     if let Some(slots) = node.slots.as_mut() {

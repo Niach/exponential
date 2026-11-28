@@ -20,6 +20,7 @@
 //! never a call per node or per keystroke.
 
 mod events;
+mod incremental;
 mod pass;
 mod reconcile;
 mod restyle;
@@ -640,6 +641,13 @@ pub struct Surface {
     /// Nodes whose subtree alone rebuilds next pass (a moved window, local
     /// tab/accordion/carousel/toggle state).
     subtree_pending: BTreeSet<String>,
+    /// #PERF-15: `subtree_pending` holds in-place updates (`incremental.rs`).
+    in_place_pending: bool,
+    /// #PERF-15: the data pointers each node's build read, by node id (the
+    /// last full build's, patched by subtree rebuilds), and whether they
+    /// are current (a full build ran).
+    data_deps: HashMap<String, Vec<String>>,
+    deps_ready: bool,
     /// Hover overlays waiting for their close timer.
     hover_closing: HashSet<String>,
     /// What the last build knew that events and subtree rebuilds need: the
@@ -756,6 +764,9 @@ impl Surface {
             built_nodes: 0,
             step_state: None,
             subtree_pending: BTreeSet::new(),
+            in_place_pending: false,
+            data_deps: HashMap::new(),
+            deps_ready: false,
             hover_closing: HashSet::new(),
             seed: Default::default(),
             formatter: Arc::new(crate::format::EnglishFormatter),
@@ -1507,11 +1518,12 @@ impl Surface {
                 Value::Null => self.set_data(&path, None),
                 v => self.set_data(&path, Some(v.clone())),
             };
+            let result_ok = result.is_ok();
             let issues = match result {
                 Ok(()) => Vec::new(),
                 Err(message) => vec![ReduceIssue::new(path.to_string(), message)],
             };
-            return Ok(ApplyOutcome { structure_changed: self.needs_build, issues });
+            return Ok(ApplyOutcome { structure_changed: self.needs_build || result_ok, issues });
         }
         if obj.get("deleteSurface").is_some() {
             self.set_component_list(Vec::new());
@@ -1621,8 +1633,13 @@ impl Surface {
         }
         self.nested = None;
         self.retain_updated_field_values(&replaced);
-        self.reduce_pending = true;
-        self.needs_build = true;
+        // #PERF-15: components re-sent in place re-reduce and rebuild only
+        // their own subtrees (`incremental.rs`); anything else reduces and
+        // builds the whole tree.
+        if !self.reduce_in_place(&replaced, &order) {
+            self.reduce_pending = true;
+            self.needs_build = true;
+        }
         // The message's own components' issues now (O(message)); the tree's
         // with the next read ([`Self::issues`]).
         let options = ReduceOptions::new(&self.catalog_id).with_view(self.view.clone());
@@ -1726,8 +1743,7 @@ impl Surface {
     /// returns the reason.
     pub fn set_data(&mut self, path: &str, value: Option<Value>) -> Result<(), String> {
         set_pointer(&mut self.data, path, value)?;
-        self.data_version += 1;
-        self.needs_build = true;
+        self.data_written(path);
         Ok(())
     }
 
@@ -1998,18 +2014,7 @@ impl Surface {
             return;
         }
         self.ensure_reduced();
-        if self.needs_build {
-            self.subtree_pending.clear();
-            self.rebuild();
-        } else {
-            for id in std::mem::take(&mut self.subtree_pending) {
-                if !self.rebuild_subtree(&id) {
-                    self.rebuild();
-                    self.subtree_pending.clear();
-                    break;
-                }
-            }
-        }
+        self.build_pending();
     }
 
     /// EXP-1259: the node whose hover/focus a part borrows: a Tabs `close`

@@ -132,18 +132,7 @@ impl Surface {
             self.invalidate_measures();
         }
         self.last_measurer = Some(measurer);
-        if self.needs_build {
-            self.subtree_pending.clear();
-            self.rebuild();
-        } else {
-            for id in std::mem::take(&mut self.subtree_pending) {
-                if !self.rebuild_subtree(&id) {
-                    self.rebuild();
-                    self.subtree_pending.clear();
-                    break;
-                }
-            }
-        }
+        self.build_pending();
         self.restyle();
         self.reveal_select_choices();
     }

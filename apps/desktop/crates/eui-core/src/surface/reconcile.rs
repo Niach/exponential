@@ -33,13 +33,15 @@ impl Surface {
             return;
         };
         let breakpoint = self.active_breakpoint();
-        let built = self.with_build_context(breakpoint.clone(), |ctx| layout_tree::build(&root, ctx));
+        let mut built = self.with_build_context(breakpoint.clone(), |ctx| layout_tree::build(&root, ctx));
         self.root = Some(root);
         // A full build replaces the previous build's refusals.
         self.build_issues.clear();
         self.note_build_issues(&built.issues);
         self.built_nodes += built.nodes.len() as u32;
         self.responsive = built.responsive;
+        self.data_deps = std::mem::take(&mut built.deps);
+        self.deps_ready = true;
         self.breakpoint = breakpoint;
         self.reconcile(built);
         let dead = self.live.iter().filter(|l| !**l).count();
@@ -60,7 +62,7 @@ impl Surface {
 
     /// Run `f` with the build context of this surface (templates reduced,
     /// gaps, breakpoint, strings, locale…).
-    fn with_build_context<R>(&mut self, breakpoint: Option<String>, f: impl FnOnce(&mut BuildContext) -> R) -> R {
+    pub(super) fn with_build_context<R>(&mut self, breakpoint: Option<String>, f: impl FnOnce(&mut BuildContext) -> R) -> R {
         let templates = std::mem::take(&mut self.template_cache);
         let (vw, vh) = self.viewport;
         let window_height = if vh > 0.0 { vh } else { self.max_height.unwrap_or(2000.0) };
@@ -157,6 +159,21 @@ impl Surface {
             return false;
         }
         self.rebuilt = true;
+        // #PERF-15: a subtree that now reads the breakpoint makes the
+        // surface responsive (a stale `true` only costs a rebuild).
+        self.responsive |= built.responsive;
+        // #PERF-15: the subtree's reads replace its old nodes' (the parent
+        // keeps its own and adds the subtree root's `visible`).
+        for s in &old {
+            let id = &self.nodes[*s as usize].id;
+            self.data_deps.remove(id);
+        }
+        for (owner, reads) in std::mem::take(&mut built.deps) {
+            let entry = self.data_deps.entry(owner).or_default();
+            entry.extend(reads);
+            entry.sort_unstable();
+            entry.dedup();
+        }
         self.built_nodes += built.nodes.len() as u32 - 1;
         let old_lists: HashSet<u32> = old.iter().copied().collect();
         let windowed: HashSet<u32> = built.lists.iter().filter(|l| l.windowed).map(|l| l.node).collect();

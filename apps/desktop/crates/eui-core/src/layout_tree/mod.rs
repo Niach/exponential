@@ -511,6 +511,9 @@ pub struct Built {
     /// VAPP-276: the node ids overlays are anchored to (`anchor`): a subtree
     /// rebuild over one of them rebuilds fully (the link is the full build's).
     pub anchors: Vec<String>,
+    /// #PERF-15: the data pointers each node's build read, by node id
+    /// (`""` = outside any node): a data write rebuilds its readers only.
+    pub deps: HashMap<String, Vec<String>>,
 }
 
 /// What a SUBTREE rebuild inherits from the full build: the enclosing
@@ -568,6 +571,11 @@ pub(crate) struct Builder<'a, 'b> {
     /// VAPP-276: Popovers / Menus whose `anchor` names a node elsewhere,
     /// linked once the whole tree is built.
     pub(crate) anchor_links: Vec<AnchorLink>,
+    /// #PERF-15: the pointers read since the last flush, the node being
+    /// built (innermost last) and what each node read.
+    pub(crate) reads: std::cell::RefCell<Vec<String>>,
+    pub(crate) read_owner: Vec<String>,
+    pub(crate) deps: HashMap<String, Vec<String>>,
 }
 
 /// VAPP-276: an overlay opened against a node named by its `anchor` prop.
@@ -673,8 +681,33 @@ pub(crate) fn js(v: &Value) -> String {
 }
 
 impl<'a, 'b> Builder<'a, 'b> {
+    /// #PERF-15: a data pointer this build read outside a binding.
+    pub(crate) fn note_read(&self, pointer: &str) {
+        self.reads.borrow_mut().push(pointer.to_string());
+    }
+
+    /// #PERF-15: the reads so far belong to the node being built.
+    fn flush_reads(&mut self) {
+        let reads = std::mem::take(self.reads.get_mut());
+        if !reads.is_empty() {
+            let owner = self.read_owner.last().cloned().unwrap_or_default();
+            self.deps.entry(owner).or_default().extend(reads);
+        }
+    }
+
+    /// #PERF-15: the build's reads by node, deduplicated.
+    fn take_deps(&mut self) -> HashMap<String, Vec<String>> {
+        self.flush_reads();
+        let mut deps = std::mem::take(&mut self.deps);
+        for reads in deps.values_mut() {
+            reads.sort_unstable();
+            reads.dedup();
+        }
+        deps
+    }
+
     pub(crate) fn resolve_ctx<'s>(&'s self, scope: &'s str) -> ResolveContext<'s> {
-        let ctx = ResolveContext::new(self.ctx.data, scope).with_strings(self.ctx.strings).with_formatter(self.ctx.formatter).with_now(self.ctx.now).with_catalog(self.ctx.catalog_id, None);
+        let ctx = ResolveContext::new(self.ctx.data, scope).with_reads(&self.reads).with_strings(self.ctx.strings).with_formatter(self.ctx.formatter).with_now(self.ctx.now).with_catalog(self.ctx.catalog_id, None);
         let ctx = match self.ctx.route {
             Some(route) => ctx.with_route(route),
             None => ctx,
@@ -944,6 +977,17 @@ impl<'a, 'b> Builder<'a, 'b> {
         if !self.visible(node, scope) {
             return None;
         }
+        // #PERF-15: its `visible` is its parent's read (it decides the
+        // parent's children); from here on the reads are the node's.
+        self.flush_reads();
+        self.read_owner.push(node.id.clone());
+        let index = self.add_node_body(node, parent, layer, scope, force_hidden);
+        self.flush_reads();
+        self.read_owner.pop();
+        Some(index)
+    }
+
+    fn add_node_body(&mut self, node: &UiNode, parent: Option<u32>, layer: u32, scope: &str, force_hidden: bool) -> u32 {
         let view = self.ctx.view;
         let def = view.component(&node.component);
         // Round 2: props resolve ALONG THEIR SCHEMA (a literal Table `rows`
@@ -1152,7 +1196,7 @@ impl<'a, 'b> Builder<'a, 'b> {
                 self.children_of(index, node, scope, false);
             }
         }
-        Some(index)
+        index
     }
 
     /// A state on a node's OWN recipe query (an invalid field's root).
@@ -1244,6 +1288,7 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// empty or a DUPLICATE of an earlier item's (more `#` until unique), so
     /// instance ids never collide. Once per array per build.
     fn item_suffixes(&mut self, t: &crate::types::Template, base: &str) -> std::sync::Arc<Vec<String>> {
+        self.note_read(base);
         let cache_key = format!("{base}\u{0}{}", t.key.as_deref().unwrap_or(""));
         if let Some(s) = self.suffixes.get(&cache_key) {
             return s.clone();
@@ -1283,6 +1328,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
         if let Some(t) = &node.template {
             let base = crate::data::absolute_path(&t.path, scope);
+            self.note_read(&base);
             let count = crate::data::get_pointer(self.ctx.data, &base).and_then(Value::as_array).map(Vec::len).unwrap_or(0);
             if let Some(tpl) = (self.ctx.template)(&t.component) {
                 let suffixes = self.item_suffixes(t, &base);
@@ -1341,6 +1387,9 @@ impl<'a, 'b> Builder<'a, 'b> {
             self.ctx.local.static_keys.insert(node.id.clone(), keys.clone());
             return keys;
         }
+        if let Some(t) = &node.template {
+            self.note_read(&crate::data::absolute_path(&t.path, scope));
+        }
         let enclosing = self.enclosing_suffix(node);
         let cache_key = format!("c\u{0}{}\u{0}{scope}", node.id);
         if let Some((v, keys)) = self.ctx.local.key_cache.get(&cache_key) {
@@ -1368,6 +1417,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
         let t = node.template.as_ref()?;
         let base = crate::data::absolute_path(&t.path, scope);
+        self.note_read(&base);
         let count = crate::data::get_pointer(self.ctx.data, &base).and_then(Value::as_array).map(Vec::len)?;
         let idx = i.checked_sub(node.children.len())?;
         if idx >= count {
@@ -1475,7 +1525,7 @@ pub fn icon_fill(name: &str) -> Option<&'static str> {
 /// leaves the painter renders as the placeholder.
 pub fn build(root: &UiNode, ctx: &mut BuildContext) -> Built {
     ctx.local.items.next_build();
-    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), item_sources: Vec::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(root), template_refused: false, issues: Vec::new(), anchor_links: Vec::new() };
+    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), item_sources: Vec::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(root), template_refused: false, issues: Vec::new(), anchor_links: Vec::new(), reads: Default::default(), read_owner: Vec::new(), deps: HashMap::new() };
     if b.add(root, None, 0, "", false).is_none() {
         // An invisible root: an empty surface (one hidden Box).
         let mut n = b.blank(&root.id, "Box", None, 0, NodeKind::Container, "");
@@ -1487,7 +1537,8 @@ pub fn build(root: &UiNode, ctx: &mut BuildContext) -> Built {
     // Layers in paint order: a parent layer before the layers it opened
     // (layer numbers are handed out when a layer's root is created).
     b.layers.sort_by_key(|l| (l.class == LayerClass::Toast, l.layer));
-    Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues, anchors }
+    let deps = b.take_deps();
+    Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues, anchors, deps }
 }
 
 /// Rebuild ONE subtree (a re-windowed List/Table) under an existing parent:
@@ -1502,11 +1553,12 @@ pub fn build_subtree(node: &UiNode, parent: &LNode, scope: &str, seed: BuildSeed
     stub.children.clear();
     let layer = stub.layer;
     ctx.local.items.next_build();
-    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), item_sources: Vec::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(node), template_refused: false, issues: Vec::new(), anchor_links: Vec::new() };
+    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), item_sources: Vec::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(node), template_refused: false, issues: Vec::new(), anchor_links: Vec::new(), reads: Default::default(), read_owner: vec![parent.id.clone()], deps: HashMap::new() };
     b.add(node, Some(0), layer, scope, false);
     b.flush_toasts();
     let anchors = b.link_anchors();
-    Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues, anchors }
+    let deps = b.take_deps();
+    Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues, anchors, deps }
 }
 
 /// EXP-1604: a Motion's composition size in px: the dialect's `size`, else

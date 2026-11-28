@@ -806,7 +806,9 @@ impl SurfaceView {
     pub fn update_components(&mut self, components: Vec<FlatComponent>, cx: &mut Context<Self>) -> ApplyOutcome {
         self.changed = true;
         let out = self.surface.update_components(components);
-        self.nodes_dirty = true;
+        // #PERF-15: the pass patches the node cache with the core's delta
+        // (a rebuild or a renumbering included): only the changed nodes'
+        // caches and styles move.
         cx.notify();
         out
     }

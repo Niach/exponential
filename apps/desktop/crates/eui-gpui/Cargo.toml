@@ -129,3 +129,7 @@ path = "examples/bench_list.rs"
 [[example]]
 name = "bench_suite"
 path = "examples/bench_suite.rs"
+
+[[example]]
+name = "bench_delta"
+path = "examples/bench_delta.rs"
