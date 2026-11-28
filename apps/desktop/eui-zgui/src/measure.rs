@@ -159,7 +159,8 @@ impl ZMeasure {
                 let text = if text.is_empty() { placeholder(props) } else { text.to_string() };
                 let gap = if c.gap > 0.0 { c.gap } else { 8.0 };
                 let theme = self.theme.clone();
-                let part = |p: &str| crate::paint::part_props(theme.as_deref(), self.mode, leaf.component, p, props, &[]);
+                let mode = self.mode;
+                let part = |p: &str| crate::paint::part_props(theme.as_deref(), mode, leaf.component, p, props, &[]);
                 let chev = part("chevron");
                 let glyph = crate::paint::px_prop(&chev, "width").or_else(|| crate::paint::px_prop(&chev, "height")).unwrap_or(16.0);
                 let mut w = self.line(&text, ts) + gap + glyph;

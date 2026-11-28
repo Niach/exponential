@@ -260,7 +260,7 @@ fn bench250() {
     std::mem::forget(cx);
 }
 
-fn benchlist(variable: bool) {
+fn benchlist(variable: bool, step: f32) {
     let mut cx = context(false);
     let (lw, lh) = (390.0_f32, 800.0_f32);
     let data = rows(variable);
@@ -275,17 +275,18 @@ fn benchlist(variable: bool) {
     let list_first = t.elapsed().as_secs_f64() * 1000.0;
     let rss_list_first = rss_mb();
     let mut steps = Vec::new();
-    for k in 1..=100 {
+    let n = (100.0 * lh / step) as usize;
+    for k in 1..=n {
         let t = Instant::now();
         frame(&mut cx, lwin, &mut |view, _, _| {
-            view.surface_mut().scroll("root", k as f32 * lh);
+            view.surface_mut().scroll("root", k as f32 * step);
         });
         steps.push(t.elapsed().as_secs_f64() * 1000.0);
     }
     let mut reached = 0.0;
     lwin.update(&mut cx, |view, _, _| reached = view.surface_mut().scroll_offset("root").1).unwrap();
     let (m, p, x, med) = stats(steps);
-    println!("{}", json!({"renderer": "gpui", "variable": variable, "list_first_frame_ms": list_first, "rss_after_list_first_mb": rss_list_first, "scroll_mean_ms": m, "scroll_p95_ms": p, "scroll_max_ms": x, "scroll_median_ms": med, "scroll_reached_px": reached, "rss_after_scroll_mb": rss_mb()}));
+    println!("{}", json!({"renderer": "gpui", "variable": variable, "step_px": step, "list_first_frame_ms": list_first, "rss_after_list_first_mb": rss_list_first, "scroll_mean_ms": m, "scroll_p95_ms": p, "scroll_max_ms": x, "scroll_median_ms": med, "scroll_reached_px": reached, "rss_after_scroll_mb": rss_mb()}));
     std::mem::forget(cx);
 }
 
@@ -349,8 +350,10 @@ fn main() {
             shot(&a[1], &a[2], w, h)
         }
         Some("bench250") => bench250(),
-        Some("benchlist") => benchlist(false),
-        Some("benchvar") => benchlist(true),
+        Some("benchlist") => benchlist(false, 800.0),
+        Some("benchvar") => benchlist(true, 800.0),
+        Some("smoothlist") => benchlist(false, 40.0),
+        Some("smoothvar") => benchlist(true, 40.0),
         Some("window") => window_mode(a.get(1).and_then(|s| s.parse().ok()).unwrap_or(15)),
         _ => eprintln!("usage: zgui_ref shots <dir> | shot <id> <out> [WxH] | bench250 | benchlist | benchvar | window <secs>"),
     }

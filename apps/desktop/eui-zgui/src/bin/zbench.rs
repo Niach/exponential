@@ -63,7 +63,7 @@ fn bench250() {
     std::mem::forget(harness);
 }
 
-fn benchlist(variable: bool) {
+fn benchlist(variable: bool, step: f32) {
     let (lw, lh) = (390.0_f32, 800.0_f32);
     let fonts = fonts::fonts();
     let data = bench::rows(variable);
@@ -85,11 +85,12 @@ fn benchlist(variable: bool) {
     let mut settle = Vec::new();
     let mut restyled = Vec::new();
     let mut nodes = 0;
-    for k in 1..=100 {
+    let n = (100.0 * lh / step) as usize;
+    for k in 1..=n {
         let t = Instant::now();
         {
             let mut d = doc.borrow_mut();
-            d.surface.scroll("root", k as f32 * lh);
+            d.surface.scroll("root", k as f32 * step);
             let s = d.pass();
             layout.push(s.layout_ms);
             mirror.push(s.mirror_ms);
@@ -107,7 +108,7 @@ fn benchlist(variable: bool) {
     let (mm, _, _, _) = stats(mirror);
     let (sm, _, _, _) = stats(settle);
     let (rm, _, _, _) = stats(restyled);
-    println!("{}", json!({"renderer": "zgui", "variable": variable, "list_first_frame_ms": list_first, "rss_after_list_first_mb": rss_first, "scroll_mean_ms": m, "scroll_p95_ms": p, "scroll_max_ms": x, "scroll_median_ms": med, "core_layout_mean_ms": lm, "mirror_mean_ms": mm, "zgui_frame_mean_ms": sm, "restyled_mean": rm, "scroll_reached_px": reached, "placed_nodes": nodes, "rss_after_scroll_mb": rss_mb()}));
+    println!("{}", json!({"renderer": "zgui", "variable": variable, "step_px": step, "list_first_frame_ms": list_first, "rss_after_list_first_mb": rss_first, "scroll_mean_ms": m, "scroll_p95_ms": p, "scroll_max_ms": x, "scroll_median_ms": med, "core_layout_mean_ms": lm, "mirror_mean_ms": mm, "zgui_frame_mean_ms": sm, "restyled_mean": rm, "scroll_reached_px": reached, "placed_nodes": nodes, "rss_after_scroll_mb": rss_mb()}));
     std::mem::forget(harness);
 }
 
@@ -151,8 +152,10 @@ fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     match a.first().map(String::as_str) {
         Some("bench250") => bench250(),
-        Some("benchlist") => benchlist(false),
-        Some("benchvar") => benchlist(true),
+        Some("benchlist") => benchlist(false, 800.0),
+        Some("benchvar") => benchlist(true, 800.0),
+        Some("smoothlist") => benchlist(false, 40.0),
+        Some("smoothvar") => benchlist(true, 40.0),
         Some("window") => window(a.get(1).and_then(|s| s.parse().ok()).unwrap_or(15), false),
         Some("two") => window(a.get(1).and_then(|s| s.parse().ok()).unwrap_or(15), true),
         _ => eprintln!("usage: zbench bench250 | benchlist | benchvar | window <secs> | two <secs>"),
