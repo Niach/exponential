@@ -1,5 +1,6 @@
 import SwiftUI
 import ExponentialUICore
+import ExponentialUIPrimitives
 
 /// A leaf an extension painter measures.
 public struct ExtensionLeaf {
@@ -87,6 +88,13 @@ public enum ExponentialUI {
     @discardableResult
     public static func registerFont(at url: URL) -> Bool {
         ExponentialUIFonts.register(url: url)
+    }
+
+    /// #EXP-2215: Inter (the bundled faces, the same copy genUI resolves the
+    /// theme's `Inter` to) for the host's own text; `relativeTo` scales it
+    /// with Dynamic Type. `Font.inter` in `ExponentialUIPrimitives` is the same.
+    public static func interFont(size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle? = nil) -> Font {
+        .inter(size: size, weight: weight, relativeTo: style)
     }
 
     /// The built-in theme ids.
