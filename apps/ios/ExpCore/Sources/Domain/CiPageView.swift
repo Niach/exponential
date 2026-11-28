@@ -193,14 +193,14 @@ public enum CiPageView {
     // MARK: - Pull requests
 
     /// One PR (or branch): its rolled-up status, the deciding run's line
-    /// and, wide, the merge queue pill; its runs fold under it.
+    /// and, wide, the merge queue pill; a press opens that run (#EXP-2214: no
+    /// folded runs, genUI's foldable Row drops its leading and trailing slots).
     private static func subjectRow(_ row: CiPage.SubjectRow, phone: Bool) -> CardJSON {
         let id = "\(CiPage.TestIds.prRow).\(row.id)"
         var props: [String: CardJSON] = [
             "title": .string(row.title),
             "subtitle": .string(phone ? row.phoneSubtitle : row.subtitle),
             "pressable": .bool(true),
-            "open": .bool(false),
         ]
         if let identifier = row.identifier { props["identifier"] = .string(identifier) }
         if phone { props["meta"] = .string(row.meta) }
@@ -212,11 +212,7 @@ public enum CiPageView {
             }
             slots["trailing"] = hstack("\(id).trailing", trailing)
         }
-        return node(id, "Row", props: props, children: row.runs.map { run in
-            node("\(id).run.\(run.id)", "Row", props: [
-                "title": .string(run.workflow), "meta": .string(run.phoneMeta), "density": .string("compact"), "pressable": .bool(true),
-            ], slots: ["leading": glyph("\(id).run.\(run.id).glyph", run.glyph.rawValue, run.tone)], on: openRun(run.id))
-        }, slots: slots, on: openRun(row.runId))
+        return node(id, "Row", props: props, slots: slots, on: openRun(row.runId))
     }
 
     private static func subjectSections(_ id: String, _ groups: [CiPage.SubjectGroup], phone: Bool, empty: String) -> CardJSON {
@@ -257,9 +253,11 @@ public enum CiPageView {
             }),
         ]
         if let runId = now.runId {
-            children.append(node("\(id).open", "Button", props: [
-                "label": .string(copy.openRun), "icon": .string("external-link"), "variant": .string("outline"), "size": .string("sm"),
-            ], on: openRun(runId)))
+            children.append(hstack("\(id).actions", [
+                node("\(id).open", "Button", props: [
+                    "label": .string(copy.openRun), "icon": .string("external-link"), "variant": .string("outline"), "size": .string("sm"),
+                ], on: openRun(runId)),
+            ]))
         }
         return node(id, "Card", props: ["title": .string(copy.testing), "description": .string(now.subtitle)], children: [vstack("\(id).body", children)])
     }
@@ -296,7 +294,7 @@ public enum CiPageView {
         }
         var props: [String: CardJSON] = ["identifier": .string(row.identifier), "title": .string(row.title), "pressable": .bool(true)]
         if let subtitle = row.subtitle, !subtitle.isEmpty { props["subtitle"] = .string(subtitle) }
-        if let at = row.at, phone { props["meta"] = relative(at) }
+        if let at = row.at, phone, row.action == nil { props["meta"] = relative(at) }
         var slots: [String: CardJSON] = ["leading": glyph("\(id).glyph", row.glyph, row.tone)]
         if !trailing.isEmpty { slots["trailing"] = trailing.count == 1 ? trailing[0] : hstack("\(id).trailing", trailing) }
         return node(id, "Row", props: props, slots: slots, on: openPr(row.pullRequestId))

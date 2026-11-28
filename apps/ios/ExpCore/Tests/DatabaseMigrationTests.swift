@@ -150,7 +150,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
              "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
-             "v116_repositories", "v117_ci_external", "v118_ci_run_title"]
+             "v116_repositories", "v117_ci_external", "v118_ci_run_title", "v119_merge_queue"]
         )
     }
 
@@ -222,7 +222,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
              "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
-             "v116_repositories", "v117_ci_external", "v118_ci_run_title"]
+             "v116_repositories", "v117_ci_external", "v118_ci_run_title", "v119_merge_queue"]
         )
     }
 
@@ -766,7 +766,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
              "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
-             "v116_repositories", "v117_ci_external", "v118_ci_run_title"]
+             "v116_repositories", "v117_ci_external", "v118_ci_run_title", "v119_merge_queue"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -886,7 +886,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
              "v113_drop_pins", "v114_agent_group_chat", "v115_device_member_spaces",
-             "v116_repositories", "v117_ci_external", "v118_ci_run_title"]
+             "v116_repositories", "v117_ci_external", "v118_ci_run_title", "v119_merge_queue"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
