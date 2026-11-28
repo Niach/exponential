@@ -113,7 +113,9 @@ impl Surface {
             })
             .collect();
         let lists: Vec<String> = candidates.into_iter().filter(|(l, scroll)| self.window_moves(l, *scroll)).map(|(l, _)| l.id).collect();
-        self.subtree_pending.extend(lists);
+        for id in lists {
+            self.rewindow_list(&id);
+        }
         // #EXP-1629: a Select's fade refits after the pass (`refit_select_fades`).
         if self.slot_of.get(id).is_some_and(|&s| self.nodes[s as usize].part.as_deref() == Some("list") && self.nodes[s as usize].owner_component.as_deref() == Some("Select")) && !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
             self.pending.push(OutEvent::Relayout);
@@ -1811,7 +1813,7 @@ impl Surface {
             },
         }
         if spec.windowed {
-            self.subtree_pending.insert(id.to_string());
+            self.rewindow_list(id);
         }
         out.push(OutEvent::Relayout);
         out

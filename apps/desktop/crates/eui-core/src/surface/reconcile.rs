@@ -4,6 +4,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use serde_json::Value;
+
 
 use super::{Carried, NodeState, Surface};
 use crate::layout_tree::{self, BuildContext, LNode, LayerPlacement, NodeKind};
@@ -14,6 +16,70 @@ use crate::types::UiNode;
 const COMPACT_MIN_DEAD: usize = 64;
 
 impl Surface {
+    /// The pending rebuilds: a full one, else each pending subtree (a full
+    /// one when a subtree cannot rebuild alone). #PERF-16: when every
+    /// pending subtree is a windowed List whose window only moved, the rows
+    /// still in its window are kept as they are.
+    pub(super) fn apply_pending_builds(&mut self) {
+        if self.needs_build {
+            self.subtree_pending.clear();
+            self.rewindow.clear();
+            self.rebuild();
+            return;
+        }
+        self.reuse_rows = !self.subtree_pending.is_empty() && self.subtree_pending.iter().all(|id| self.rewindow.contains(id));
+        self.rewindow.clear();
+        for id in std::mem::take(&mut self.subtree_pending) {
+            if !self.rebuild_subtree(&id) {
+                self.rebuild();
+                self.subtree_pending.clear();
+                break;
+            }
+        }
+        self.reuse_rows = false;
+        self.kept_rows.clear();
+    }
+
+    /// #PERF-16: the windowed List `id` re-windows (its window moved): its
+    /// subtree rebuilds next pass, keeping the rows that stay.
+    pub(super) fn rewindow_list(&mut self, id: &str) {
+        self.subtree_pending.insert(id.to_string());
+        self.rewindow.insert(id.to_string());
+    }
+
+    /// #PERF-16: the rows of the windowed Lists this build may keep: every
+    /// row (a direct child of the List, not a part) whose subtree the build
+    /// would write nothing else for (no nested List, Table, Form, overlay,
+    /// toast, anchor or exit ghost), with the place it was built at.
+    fn collect_kept_rows(&mut self) {
+        self.kept_rows.clear();
+        if !self.reuse_rows {
+            return;
+        }
+        let lists: HashSet<u32> = self.lists.iter().map(|l| l.node).collect();
+        let special: HashSet<&str> = self.layers.iter().map(|l| l.owner.as_str()).chain(self.toasts.iter().map(|t| t.id.as_str())).chain(self.anchor_ids.iter().map(String::as_str)).collect();
+        let mut kept = HashMap::new();
+        for spec in self.lists.iter().filter(|l| l.windowed) {
+            let Some(list) = self.nodes.get(spec.node as usize).filter(|_| self.live[spec.node as usize]) else { continue };
+            for &row in &list.children {
+                let n = &self.nodes[row as usize];
+                if n.part.is_some() || !self.live[row as usize] || self.ghosts.contains(&row) {
+                    continue;
+                }
+                let keeps = self.subtree(row).iter().all(|&d| {
+                    let m = &self.nodes[d as usize];
+                    !lists.contains(&d) && !self.ghosts.contains(&d) && !special.contains(m.id.as_str()) && !matches!(m.component.as_str(), "Form" | "Table")
+                });
+                if !keeps {
+                    continue;
+                }
+                let a11y = |k: &str| n.accessibility.as_ref().and_then(|a| a.get(k)).and_then(Value::as_u64);
+                kept.insert(n.id.clone(), crate::layout_tree::KeptRow { slot: row, list: list.id.clone(), pos_in_set: a11y("posInSet"), set_size: a11y("setSize") });
+            }
+        }
+        self.kept_rows = kept;
+    }
+
     /// Rebuild the layout tree and reconcile it onto the slots.
     pub(super) fn rebuild(&mut self) {
         crate::roomy(|| self.rebuild_now())
@@ -33,13 +99,16 @@ impl Surface {
             return;
         };
         let breakpoint = self.active_breakpoint();
+        self.collect_kept_rows();
         let built = self.with_build_context(breakpoint.clone(), |ctx| layout_tree::build(&root, ctx));
         self.root = Some(root);
         // A full build replaces the previous build's refusals.
         self.build_issues.clear();
         self.note_build_issues(&built.issues);
-        self.built_nodes += built.nodes.len() as u32;
-        self.responsive = built.responsive;
+        let kept = built.nodes.iter().filter(|n| n.kept.is_some()).count();
+        self.built_nodes += (built.nodes.len() - kept) as u32;
+        // #PERF-16: a kept row read its responsive props when it was built.
+        self.responsive = built.responsive || (kept > 0 && self.responsive);
         self.breakpoint = breakpoint;
         self.reconcile(built);
         let dead = self.live.iter().filter(|l| !**l).count();
@@ -114,6 +183,7 @@ impl Surface {
                 now: self.clock.unwrap_or_else(crate::format::now_ms),
                 data_version: self.data_version,
                 read_only: self.settings.read_only,
+                kept_rows: self.reuse_rows.then_some(&self.kept_rows),
             };
             f(&mut ctx)
         };
@@ -149,6 +219,7 @@ impl Surface {
         let scope = self.nodes[slot as usize].scope.clone();
         let breakpoint = self.breakpoint.clone();
         let seed = std::mem::take(&mut self.seed);
+        self.collect_kept_rows();
         let mut built = self.with_build_context(breakpoint, |ctx| layout_tree::build_subtree(node, &parent_node, &scope, seed, ctx));
         self.root = Some(root);
         self.note_build_issues(&built.issues);
@@ -157,7 +228,8 @@ impl Surface {
             return false;
         }
         self.rebuilt = true;
-        self.built_nodes += built.nodes.len() as u32 - 1;
+        let kept = built.nodes.iter().filter(|n| n.kept.is_some()).count();
+        self.built_nodes += (built.nodes.len() - kept) as u32 - 1;
         let old_lists: HashSet<u32> = old.iter().copied().collect();
         let windowed: HashSet<u32> = built.lists.iter().filter(|l| l.windowed).map(|l| l.node).collect();
         let (map, structure_changed) = self.reconcile_core(built.nodes, Some(parent), old, &windowed);
@@ -185,6 +257,9 @@ impl Surface {
 
     /// Forget every slot (a new surface, a compaction).
     fn clear_slots(&mut self) {
+        // #PERF-16: no slot survives to be kept.
+        self.reuse_rows = false;
+        self.kept_rows.clear();
         self.archive_all();
         self.exits.clear();
         self.ghosts.clear();
@@ -270,6 +345,7 @@ impl Surface {
             form: None,
             form_disabled: false,
             live: None,
+            kept: None,
         });
         self.live.push(false);
         self.node_state.push(NodeState::default());
@@ -354,7 +430,16 @@ impl Surface {
     /// Map built nodes (pre-order, temp indices) onto slots by id, write
     /// them, kill the `candidates` nobody claimed. `pinned` = temp node 0 is
     /// an existing slot (the parent of a rebuilt subtree) that stays as it is.
-    fn reconcile_core(&mut self, mut nodes: Vec<LNode>, pinned: Option<u32>, candidates: Vec<u32>, windowed: &HashSet<u32>) -> (Vec<u32>, bool) {
+    fn reconcile_core(&mut self, mut nodes: Vec<LNode>, pinned: Option<u32>, mut candidates: Vec<u32>, windowed: &HashSet<u32>) -> (Vec<u32>, bool) {
+        // #PERF-16: a kept row's slot and its whole subtree stay as they are
+        // (never a candidate to kill or to ghost).
+        if nodes.iter().any(|n| n.kept.is_some()) {
+            let mut keep: HashSet<u32> = HashSet::new();
+            for s in nodes.iter().filter_map(|n| n.kept) {
+                keep.extend(self.subtree(s));
+            }
+            candidates.retain(|s| !keep.contains(s));
+        }
         // Round 4 motion: leaving nodes with an exit stay as ghosts.
         let ghost_temps = self.splice_ghosts(&mut nodes, &candidates, windowed, pinned.is_some());
         let mut reusable = std::mem::take(&mut self.free);
@@ -367,8 +452,9 @@ impl Surface {
         let mut map: Vec<u32> = Vec::with_capacity(nodes.len());
         let reclaimable: HashSet<u32> = if pinned.is_some() { candidates.iter().copied().collect() } else { HashSet::new() };
         for (t, n) in nodes.iter().enumerate() {
-            let slot = match (t, pinned) {
-                (0, Some(p)) => p,
+            let slot = match (t, pinned, n.kept) {
+                (_, _, Some(k)) => k,
+                (0, Some(p), _) => p,
                 _ => match self.slot_of.get(&n.id).copied() {
                     // A node back from its exit enters anew (a new slot).
                     Some(s) if !is_claimed(&claimed, s) && self.live[s as usize] && (pinned.is_none() || reclaimable.contains(&s)) && (!self.ghosts.contains(&s) || ghost_temps.contains(&t)) => s,
@@ -403,6 +489,7 @@ impl Surface {
                 }
             }
         }
+        let kept_t: Vec<bool> = nodes.iter().map(|n| n.kept.is_some()).collect();
         let mut structure_changed = false;
         let stale: Vec<u32> = candidates.into_iter().filter(|s| self.live[*s as usize] && !is_claimed(&claimed, *s)).collect();
         for s in stale {
@@ -416,7 +503,7 @@ impl Surface {
         self.free.extend(freed_now);
 
         for (t, mut n) in nodes.into_iter().enumerate() {
-            if t == 0 && pinned.is_some() {
+            if (t == 0 && pinned.is_some()) || n.kept.is_some() {
                 continue;
             }
             let slot = map[t];
@@ -499,7 +586,7 @@ impl Surface {
             self.nodes[slot as usize] = n;
         }
         for (t, slot) in map.iter().enumerate() {
-            if t == 0 && pinned.is_some() {
+            if (t == 0 && pinned.is_some()) || kept_t[t] {
                 continue;
             }
             let children = self.nodes[*slot as usize].children.clone();
